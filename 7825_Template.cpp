@@ -2,6 +2,7 @@
 // ELEX 7825 Template project for BCIT
 // Created Sept 9, 2020 by Craig Hennessey
 // Last updated September 26, 2022
+// Glen Healy - Oct 2025 - Updated for C++14
 ////////////////////////////////////////////////////////////////
 #include "stdafx.h"
 

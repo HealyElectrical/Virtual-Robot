@@ -1,166 +1,169 @@
 ﻿#include "stdafx.h"
+
 #include "CameraVirtual.h"
 #include <cmath>
-#include "cvui.h"
 
-// --- helpers ---
-static inline double deg2rad(double d) { return d * CV_PI / 180.0; }
+#include "cvui.h"
 
 CCameraVirtual::CCameraVirtual()
 {
-   // Initialize with a default camera image size 
-   init(Size(1000, 600));
+	// Initialize with a default camera image size 
+	init(IMAGE_SIZE);
 }
 
-CCameraVirtual::~CCameraVirtual() {}
+CCameraVirtual::~CCameraVirtual()
+{
+}
 
 void CCameraVirtual::init(Size image_size)
 {
-   ////////// UI state (cvui trackbars) //////////
-   _cam_setting_f = 3;      // focal length in mm (per lab)
-   _cam_setting_x = 0;      // mm
-   _cam_setting_y = -500;   // mm (start back so robot is in view)
-   _cam_setting_z = 0;      // mm
-   _cam_setting_roll = 0;      // deg
-   _cam_setting_pitch = 0;    // deg (look along +Z)
-   _cam_setting_yaw = 0;      // deg
+	//////////////////////////////////////
+	// CVUI interface default variables
 
-   ////////// Intrinsics //////////
-   // pixel size in meters/pixel (4.6 µm)
-   _pixel_size = 0.0000046f;    // 4.6e-6 m/px
+	_cam_setting_f = 2;     // Focal length in mm
+	_cam_setting_x = 0;     // mm
+	_cam_setting_y = -70;     // mm
+	_cam_setting_z = -270;  // mm
+	_cam_setting_roll = -90; // degrees
+	_cam_setting_pitch = 0;  // degrees
+	_cam_setting_yaw = 0;    // degrees
 
-   // principal point at image center
-   _principal_point = Point2f(static_cast<float>(image_size.width) * 0.5f,
-      static_cast<float>(image_size.height) * 0.5f);
 
-   calculate_intrinsic();
-   calculate_extrinsic();
+	//////////////////////////////////////
+	// Virtual Camera intrinsic
+
+	_cam_setting_f = 3; // Units are mm, convert to m by dividing 1000
+
+	_pixel_size = 0.0000046; // Units of m
+	_principal_point = Point2f(image_size / 2); // this is the line that centres the figure 
+
+	calculate_intrinsic();
+
+	//////////////////////////////////////
+	// Virtual Camera Extrinsic
+
+	calculate_extrinsic();
 }
 
-// ====================== LAB 3 ======================
+void CCameraVirtual::calculate_intrinsic() {
+	float f = _cam_setting_f / 1000.0f; // focal length in meters
+	float fx = f / _pixel_size;
+	float fy = f / _pixel_size;
+	float cx = _principal_point.x;
+	float cy = _principal_point.y;
 
-// Intrinsic: K = [ fx 0 cx ; 0 fy cy ; 0 0 1 ],
-// fx,fy in pixels. We have f in mm, pixel_size in m/px → convert f to meters first.
-void CCameraVirtual::calculate_intrinsic()
-{
-   const double f_mm = static_cast<double>(_cam_setting_f); // mm
-   const double f_m = f_mm * 1e-3;                         // meters
-   const double px_m = static_cast<double>(_pixel_size);    // meters/pixel
-   const double f_px = f_m / px_m;                          // pixels
-
-   _cam_virtual_intrinsic = Mat::eye(3, 3, CV_64F);
-   _cam_virtual_intrinsic.at<double>(0, 0) = f_px;                             // fx
-   _cam_virtual_intrinsic.at<double>(1, 1) = f_px;                             // fy
-   _cam_virtual_intrinsic.at<double>(0, 2) = static_cast<double>(_principal_point.x); // cx
-   _cam_virtual_intrinsic.at<double>(1, 2) = static_cast<double>(_principal_point.y); // cy
+	_cam_virtual_intrinsic = (Mat1f(3, 4) << fx, 0, cx, 0,
+		0, fy, cy, 0,
+		0, 0, 1, 0);
 }
 
-// Extrinsic: world→camera  X_cam = R * X_world + t,
-// with camera center C in world coords → t = -R * C
-void CCameraVirtual::calculate_extrinsic()
-{
-   const double rx = deg2rad(static_cast<double>(_cam_setting_roll));
-   const double ry = deg2rad(static_cast<double>(_cam_setting_pitch));
-   const double rz = deg2rad(static_cast<double>(_cam_setting_yaw));
+void CCameraVirtual::calculate_extrinsic() {
+	Vec3d t(_cam_setting_x / 1000.0, _cam_setting_y / 1000.0, _cam_setting_z / 1000.0); // mm to m
+	Vec3d r(_cam_setting_roll, _cam_setting_pitch, _cam_setting_yaw); // degrees
 
-   Mat Rx = (Mat_<double>(3, 3) <<
-      1, 0, 0,
-      0, cos(rx), -sin(rx),
-      0, sin(rx), cos(rx)
-      );
-   Mat Ry = (Mat_<double>(3, 3) <<
-      cos(ry), 0, sin(ry),
-      0, 1, 0,
-      -sin(ry), 0, cos(ry)
-      );
-   Mat Rz = (Mat_<double>(3, 3) <<
-      cos(rz), -sin(rz), 0,
-      sin(rz), cos(rz), 0,
-      0, 0, 1
-      );
-
-   // Yaw→Pitch→Roll
-   Mat R = Rz * Ry * Rx;
-
-   // Camera center in world (mm)
-   Mat C = (Mat_<double>(3, 1) <<
-      static_cast<double>(_cam_setting_x),
-      static_cast<double>(_cam_setting_y),
-      static_cast<double>(_cam_setting_z));
-
-   Mat t = -R * C; // 3x1
-
-   _cam_virtual_extrinsic = Mat::zeros(3, 4, CV_64F);
-   R.copyTo(_cam_virtual_extrinsic(Rect(0, 0, 3, 3)));
-   t.copyTo(_cam_virtual_extrinsic.col(3));
+	// Use your createHT function to get the matrix
+	_cam_virtual_extrinsic = createHT(t, r);
 }
 
-// Map one 3D point (in mm) to image pixel coords
-void CCameraVirtual::transform_to_image(Mat pt3d_mat, Point2f& pt)
-{
-   CV_Assert((pt3d_mat.rows == 3 || pt3d_mat.rows == 4) && pt3d_mat.cols == 1);
-
-   Mat Xw(4, 1, CV_64F);
-   if (pt3d_mat.rows == 3) {
-      Xw.at<double>(0, 0) = pt3d_mat.at<double>(0, 0);
-      Xw.at<double>(1, 0) = pt3d_mat.at<double>(1, 0);
-      Xw.at<double>(2, 0) = pt3d_mat.at<double>(2, 0);
-      Xw.at<double>(3, 0) = 1.0;
-   }
-   else {
-      Xw = pt3d_mat.clone();
-      Xw.at<double>(3, 0) = 1.0;
-   }
-
-   Mat Xc = _cam_virtual_extrinsic * Xw; // 3x1
-
-   const double X = Xc.at<double>(0, 0);
-   const double Y = Xc.at<double>(1, 0);
-   const double Z = Xc.at<double>(2, 0);
-
-   if (Z <= 1e-9) { pt = Point2f(-1e6f, -1e6f); return; }
-
-   const double fx = _cam_virtual_intrinsic.at<double>(0, 0);
-   const double fy = _cam_virtual_intrinsic.at<double>(1, 1);
-   const double cx = _cam_virtual_intrinsic.at<double>(0, 2);
-   const double cy = _cam_virtual_intrinsic.at<double>(1, 2);
-
-   pt.x = static_cast<float>(fx * (X / Z) + cx);
-   pt.y = static_cast<float>(fy * (Y / Z) + cy);
+void CCameraVirtual::transform_to_image(Mat pt3d_mat, Point2f& pt) {
+	// Transform to camera coordinates
+	Mat pt_cam = _cam_virtual_extrinsic * pt3d_mat;
+	// Project to image plane
+	Mat pt_img = _cam_virtual_intrinsic * pt_cam;
+	// Normalize
+	pt.x = pt_img.at<float>(0, 0) / pt_img.at<float>(2, 0);
+	pt.y = pt_img.at<float>(1, 0) / pt_img.at<float>(2, 0);
 }
 
-void CCameraVirtual::transform_to_image(std::vector<Mat> pts3d_mat, std::vector<Point2f>& pts2d)
+void CCameraVirtual::transform_to_image(std::vector<Mat> pts3d_mat, std::vector<Point2f>& pts2d) {
+	pts2d.clear();
+	for (const auto& pt3d : pts3d_mat) {
+		Point2f pt2d;
+		transform_to_image(pt3d, pt2d); // Reuse the overloaded single point function
+		pts2d.push_back(pt2d);
+	}
+}
+
+Mat CCameraVirtual::createHT(Vec3d t, Vec3d r) // TODO: Create Homogeneous Transformation Matrix
 {
-   pts2d.clear();
-   pts2d.reserve(pts3d_mat.size());
-   for (auto& P : pts3d_mat) {
-      Point2f q;
-      transform_to_image(P, q);
-      pts2d.push_back(q);
-   }
+	// constants
+	const double deg2rad = 3.14159265358979323846 / 180;
+	const double alpha = r[2] * deg2rad; // yaw
+	const double beta = r[1] * deg2rad;  // pitch
+	const double gamma = r[0] * deg2rad; // roll
+	const double sa = sin(alpha);
+	const double sb = sin(beta);
+	const double sg = sin(gamma);
+	const double ca = cos(alpha);
+	const double cb = cos(beta);
+	const double cg = cos(gamma);
+
+	// matrix value calculations
+	double a = ca * cb;
+	double b = (ca * sb * sg) - (sa * cg);
+	double c = (ca * sb * cg) + (sa * sg);
+	double d = sa * cb;
+	double e = (sa * sb * sg) + (ca * cg);
+	double f = (sa * sb * cg) - (ca * sg);
+	double g = -(sb);
+	double h = cb * sg;
+	double i = cb * cg;
+
+	return ((Mat1f(4, 4) <<
+		a, b, c, t[0],
+		d, e, f, t[1],
+		g, h, i, t[2],
+		0, 0, 0, 1));
 }
 
 void CCameraVirtual::update_settings(Mat& im)
 {
-   cvui::window(im, 5, 5, 230, 380, "Virtual Camera Settings");
+	bool track_board = false;
+	Point _camera_setting_window;
 
-   int x = 15, y = 35, w = 200, step = 45;
+	cvui::window(im, _camera_setting_window.x, _camera_setting_window.y, 200, 375, "Virtual Camera Settings");
 
-   cvui::trackbar(im, x, y, w, &_cam_setting_f, 1, 20);                 cvui::text(im, x + w + 5, y + 20, "F (mm)");
-   y += step; cvui::trackbar(im, x, y, w, &_cam_setting_x, -1000, 1000); cvui::text(im, x + w + 5, y + 20, "X (mm)");
-   y += step; cvui::trackbar(im, x, y, w, &_cam_setting_y, -1000, 1000); cvui::text(im, x + w + 5, y + 20, "Y (mm)");
-   y += step; cvui::trackbar(im, x, y, w, &_cam_setting_z, -1000, 1000); cvui::text(im, x + w + 5, y + 20, "Z (mm)");
-   y += step; cvui::trackbar(im, x, y, w, &_cam_setting_roll, -180, 180); cvui::text(im, x + w + 5, y + 20, "Roll");
-   y += step; cvui::trackbar(im, x, y, w, &_cam_setting_pitch, -180, 180); cvui::text(im, x + w + 5, y + 20, "Pitch");
-   y += step; cvui::trackbar(im, x, y, w, &_cam_setting_yaw, -180, 180); cvui::text(im, x + w + 5, y + 20, "Yaw");
-   y += step;
-   if (cvui::button(im, x, y, 100, 30, "Reset")) {
-      init(im.size());
-   }
+	_camera_setting_window.x = 5;
+	_camera_setting_window.y = 20;
+	cvui::trackbar(im, _camera_setting_window.x, _camera_setting_window.y, 180, &_cam_setting_f, 1, 20);
+	cvui::text(im, _camera_setting_window.x + 180, _camera_setting_window.y + 20, "F");
 
-   calculate_intrinsic();
-   calculate_extrinsic();
+	_camera_setting_window.y += 45;
+	cvui::trackbar(im, _camera_setting_window.x, _camera_setting_window.y, 180, &_cam_setting_x, -500, 500);
+	cvui::text(im, _camera_setting_window.x + 180, _camera_setting_window.y + 20, "X");
 
-   putText(im, "cx,cy: (" + to_string((int)_principal_point.x) + "," + to_string((int)_principal_point.y) + ")",
-      Point(10, im.rows - 50), FONT_HERSHEY_SIMPLEX, 0.45, Scalar(220, 220, 220), 1);
+	_camera_setting_window.y += 45;
+	cvui::trackbar(im, _camera_setting_window.x, _camera_setting_window.y, 180, &_cam_setting_y, -500, 500);
+	cvui::text(im, _camera_setting_window.x + 180, _camera_setting_window.y + 20, "Y");
+
+	_camera_setting_window.y += 45;
+	cvui::trackbar(im, _camera_setting_window.x, _camera_setting_window.y, 180, &_cam_setting_z, -500, 500);
+	cvui::text(im, _camera_setting_window.x + 180, _camera_setting_window.y + 20, "Z");
+
+	_camera_setting_window.y += 45;
+	cvui::trackbar(im, _camera_setting_window.x, _camera_setting_window.y, 180, &_cam_setting_roll, -180, 180);
+	cvui::text(im, _camera_setting_window.x + 180, _camera_setting_window.y + 20, "R");
+
+	_camera_setting_window.y += 45;
+	cvui::trackbar(im, _camera_setting_window.x, _camera_setting_window.y, 180, &_cam_setting_pitch, -180, 180);
+	cvui::text(im, _camera_setting_window.x + 180, _camera_setting_window.y + 20, "P");
+
+	_camera_setting_window.y += 45;
+	cvui::trackbar(im, _camera_setting_window.x, _camera_setting_window.y, 180, &_cam_setting_yaw, -180, 180);
+	cvui::text(im, _camera_setting_window.x + 180, _camera_setting_window.y + 20, "Y");
+
+	_camera_setting_window.y += 45;
+	if (cvui::button(im, _camera_setting_window.x, _camera_setting_window.y, 100, 30, "Reset"))
+	{
+		init(im.size());
+	}
+
+	// Use this line if only this settings window in use
+	// cvui::update();
+
+	//////////////////////////////
+	// Update camera model
+
+	calculate_intrinsic();
+	calculate_extrinsic();
 }
