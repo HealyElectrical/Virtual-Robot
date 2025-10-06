@@ -4,7 +4,7 @@
 #include <cmath>
 
 #include "cvui.h"
-#include "Test.h"
+//#include "Test.h"
 
 
 CRobot::CRobot()
@@ -208,19 +208,15 @@ void CRobot::draw_simple_robot()
 	//_realcam.update_settings(_canvas);
 	update_settings(_canvas);
 	////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Draw after update
-	if (TEST)
-	{
-		chooseTest(TEST_4, _canvas, _image_size); // currently used instead of a for-loop of drawBox(_canvas, _simple_robot[0], cv::Scalar(255, 0, 0)); & drawCoord(_canvas, O);
-	}
-	else {
+
+	
 		// draw the robot
 		for (const auto& box : _simple_robot)
 			drawBox(_canvas, box, chooseColors(&box - &_simple_robot[0])); // chooseColors(index, color0, color1, color2, color3, color4, color5)
 		// draw the coord at the origin of the world... but it needs to be moved manually with the robot later
 		std::vector<Mat> O = createCoord();
 		drawCoord(_canvas, O);
-	}
+	
 	////////////////////////////////////////////////////////////////////////////////////////////////////////
 	cv::imshow(CANVAS_NAME, _canvas);
 }
