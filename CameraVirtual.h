@@ -1,6 +1,8 @@
 #pragma once
 
 #include <opencv2/opencv.hpp>
+#include "constants.h"
+//#include "Test.h"
 
 using namespace std;
 using namespace cv;
@@ -19,6 +21,7 @@ private:
 	Mat _cam_virtual_intrinsic;
 	Mat _cam_virtual_extrinsic;
 
+	Mat createHT(Vec3d t, Vec3d r);
 	void calculate_intrinsic();
 	void calculate_extrinsic();
 
