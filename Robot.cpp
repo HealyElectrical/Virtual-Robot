@@ -148,15 +148,14 @@ void CRobot::create_simple_robot()
 
 	// ---- Vertical column: 4 boxes tall along +Z ----
 	for (int i = 0; i < 4; ++i) {
-		Mat T = createHT(Vec3d(0, 0, i * W), Vec3d(0, 0, 0));  // translate by i*W on Z
+		Mat T = createHT(Vec3d(0, 0, i * W), Vec3d(0, 0, 0));  // stack along +Z
 		auto box = base;
 		transformPoints(box, T);
 		_simple_robot.push_back(box);
 	}
 
-	// ---- Crossbar at the 3rd box level (counting from bottom: 1,2,3,4) ----
-	// 0-based index i=2 is the "3rd box" height => z = 2*W
-	const double z_cross = 2 * W;
+	// ---- Crossbar at the 3rd box level ----
+	const double z_cross = 2 * W;   // z = 100 mm
 
 	// Left arm (−X)
 	{
@@ -173,9 +172,6 @@ void CRobot::create_simple_robot()
 		transformPoints(box, T);
 		_simple_robot.push_back(box);
 	}
-
-	// Note: the center cube at z = 2*W is already there from the vertical column,
-	// so the crossbar becomes 3 wide: left, center, right.
 }
 
 
@@ -187,23 +183,33 @@ void CRobot::draw_simple_robot()
 
 	// UI panels (virtual cam + any robot settings you have)
 	_virtualcam.update_settings(_canvas);
-	update_settings(_canvas); // keep if you have a robot panel; otherwise remove
+	update_settings(_canvas);
 
 	// Draw world axes at origin
 	auto axes = createCoord();
 	drawCoord(_canvas, axes);
 
-	// Draw all 6 boxes
+	// --- assign colors per box (BGR order for OpenCV) ---
+	std::vector<Scalar> colors = {
+		 Scalar(0,   0, 255),     // Box 1 - Red
+		 Scalar(0, 255,   0),     // Box 2 - Green
+		 Scalar(255, 0, 255),     // Box 3 - Purple (magenta)
+		 Scalar(0, 255, 255),     // Box 4 - Yellow (cyan+green)
+		 Scalar(255, 128, 0),     // Box 5 - Blue-ish Orange (actually orange-blue mix)
+		 Scalar(42,  42, 165)     // Box 6 - Light Brown (tan)
+	};
+
+	// Draw all boxes
 	for (size_t i = 0; i < _simple_robot.size(); ++i)
 	{
-		// give a little variety in color
-		Scalar c = (i % 2 == 0) ? Scalar(80, 220, 80) : Scalar(80, 180, 255);
+		Scalar c = (i < colors.size()) ? colors[i] : Scalar(255, 255, 255); // fallback white
 		drawBox(_canvas, _simple_robot[i], c);
 	}
 
 	cvui::update();
 	imshow(CANVAS_NAME, _canvas);
 }
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////
 // LAB4

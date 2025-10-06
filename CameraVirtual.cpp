@@ -22,7 +22,7 @@ void CCameraVirtual::init(Size image_size)
    _cam_setting_y = -500;   // mm (start back so robot is in view)
    _cam_setting_z = 0;      // mm
    _cam_setting_roll = 0;      // deg
-   _cam_setting_pitch = -90;    // deg (look along +Z)
+   _cam_setting_pitch = 0;    // deg (look along +Z)
    _cam_setting_yaw = 0;      // deg
 
    ////////// Intrinsics //////////
