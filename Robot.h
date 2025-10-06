@@ -4,6 +4,8 @@
 
 #include "CameraVirtual.h"
 #include "CameraReal.h"
+#include "constants.h"
+#include "Test.h"
 
 using namespace std;
 using namespace cv;
@@ -17,25 +19,24 @@ public:
 
 private:
 	Size _image_size;
+	Point _image_center;
 	Mat _canvas;
 
-	void init();
-
-	////////////////////////////////////
-  // LAB 3
-
-	vector<vector<Mat>> _simple_robot;
+	vector<vector<Mat>> _simple_robot; // robot<cubes<8 vertexes/points>>
 
 	CCameraVirtual _virtualcam;
 	CCameraReal _realcam;
 
-	std::vector<Mat> createBox(float w, float h, float d);
+	std::vector<Mat> createBox(float w, float h, float d); // already done
 	std::vector<Mat> createCoord();
 
-	void transformPoints(std::vector<Mat>& points, Mat T);
+	void init(); // already done
+	void transformPoints(std::vector<Mat>& points, Mat T); // already done
 
-	void drawBox(Mat& im, std::vector<Mat> box3d, Scalar colour);
+	void drawBox(Mat& im, std::vector<Mat> box3d, Scalar colour); // just define the camera 2D/3D function
 	void drawCoord(Mat& im, std::vector<Mat> coord3d);
+	void update_settings(Mat& im);
+	Scalar chooseColors(int idx);
 
 	////////////////////////////////////
 	// LAB 4
@@ -43,14 +44,9 @@ private:
 	////////////////////////////////////
 	// LAB 5
 
-	int _do_animate; // Animation state machine
-
-	void update_settings(Mat& im);
+	int _do_animate; // Animation state machine... eventually maybe make this an enum
 
 public:
-	////////////////////////////////////
-	// Lab 3
-
 	Mat createHT(Vec3d t, Vec3d r);
 	void create_simple_robot();
 	void draw_simple_robot();
