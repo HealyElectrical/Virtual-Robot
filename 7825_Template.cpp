@@ -2,6 +2,7 @@
 // ELEX 7825 Template project for BCIT
 // Created Sept 9, 2020 by Craig Hennessey
 // Last updated September 26, 2022
+// Glen Healy - Oct 2025 - Updated for C++14
 ////////////////////////////////////////////////////////////////
 #include "stdafx.h"
 
@@ -44,8 +45,72 @@ void lab3(int cam_id)
 
 void lab4(int cam_id)
 {
+    // --- Window & cvui setup ---
+    const char* kWin = "Lab 4 - Real Camera";
+    cv::namedWindow(kWin);
+    cvui::init(kWin);  // IMPORTANT: only do CVUI_IMPLEMENTATION in ONE .cpp (your template already does)
 
+    // --- Camera ---
+    CCameraReal cam;                 // uses fallback intrinsics if XML missing
+    cam.set_resolution(1280, 720);
+
+    // --- UI state ---
+    bool trackBoard = true;          // checkbox state
+    // Show pose in millimetres to match the lab / your Lab 3 UI style
+    double x_mm = 0.0, y_mm = 0.0, z_mm = 0.0;
+
+    cv::Mat frame;
+    char key = -1;
+
+    while (key != 'q' && key != 27) // q or ESC
+    {
+        cam.get_image(frame);
+        if (frame.empty()) { key = (char)cv::waitKey(1); continue; }
+
+        // Run pose; your CameraReal draws axes itself
+        cam.detectBoardPose(frame);
+
+        // If “Track Board” is ON and we have a pose, update sliders from pose
+        if (trackBoard && cam.have_pose) {
+            // cam.tvec_CB is in meters; convert to mm for the sliders
+            x_mm = cam.tvec_CB[0] * 1000.0;
+            y_mm = cam.tvec_CB[1] * 1000.0;
+            z_mm = cam.tvec_CB[2] * 1000.0;
+        }
+
+        // ---- cvui panel on top of the camera image ----
+        int px = 10, py = 10;
+        cvui::window(frame, px, py, 260, 190, "Track / Pose");
+        px += 10; py += 30;
+
+        cvui::checkbox(frame, px, py, "Track Board (link X/Y/Z)", &trackBoard);
+        py += 30;
+
+        // trackbars: min/max in mm (tweak ranges to your scene)
+        cvui::text(frame, px, py - 8, "X (mm)");
+        cvui::trackbar(frame, px, py, 240, &x_mm, -1000.0, 1000.0);
+        py += 50;
+
+        cvui::text(frame, px, py - 8, "Y (mm)");
+        cvui::trackbar(frame, px, py, 240, &y_mm, -1000.0, 1000.0);
+        py += 50;
+
+        cvui::text(frame, px, py - 8, "Z (mm)");
+        cvui::trackbar(frame, px, py, 240, &z_mm, 0.0, 2000.0);
+
+        // IMPORTANT: refresh cvui internal state before imshow
+        cvui::update();
+
+        // show
+        cv::imshow(kWin, frame);
+        key = (char)cv::waitKey(1);
+    }
+
+    cv::destroyWindow(kWin);
 }
+
+
+
 
 void lab5(int cam_id)
 {
