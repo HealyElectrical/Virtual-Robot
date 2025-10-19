@@ -1,73 +1,83 @@
 #pragma once
 
+#include <vector>
 #include <opencv2/opencv.hpp>
 
 #include "CameraVirtual.h"
 #include "CameraReal.h"
+#include "constants.h"
+#include "Test.h"
 
-using namespace std;
-using namespace cv;
-using namespace dnn;
+// (Optional) Avoid 'using namespace' in headers to prevent namespace pollution.
+// using namespace std;
+// using namespace cv;
+// using namespace dnn;
 
 class CRobot
 {
 public:
-	CRobot();
-	~CRobot();
+    CRobot();
+    ~CRobot();
 
 private:
-	Size _image_size;
-	Mat _canvas;
+    cv::Size _image_size;
+    cv::Point _image_center;
+    cv::Mat _canvas;
 
-	void init();
+    // robot<cubes<8 vertexes/points>>
+    std::vector<std::vector<cv::Mat>> _simple_robot;
 
-	////////////////////////////////////
-  // LAB 3
+    CCameraVirtual _virtualcam;
+    CCameraReal    _realcam;
 
-	vector<vector<Mat>> _simple_robot;
+    // Builders / helpers
+    std::vector<cv::Mat> createBox(float w, float h, float d);
+    std::vector<cv::Mat> createCoord();
 
-	CCameraVirtual _virtualcam;
-	CCameraReal _realcam;
+    void init();
+    void transformPoints(std::vector<cv::Mat>& points, cv::Mat T);
 
-	std::vector<Mat> createBox(float w, float h, float d);
-	std::vector<Mat> createCoord();
+    void drawBox(cv::Mat& im, std::vector<cv::Mat> box3d, cv::Scalar colour);
+    void drawCoord(cv::Mat& im, std::vector<cv::Mat> coord3d);
+    void update_settings(cv::Mat& im);
+    cv::Scalar chooseColors(int idx);
 
-	void transformPoints(std::vector<Mat>& points, Mat T);
-
-	void drawBox(Mat& im, std::vector<Mat> box3d, Scalar colour);
-	void drawCoord(Mat& im, std::vector<Mat> coord3d);
-
-	////////////////////////////////////
-	// LAB 4
-
-	////////////////////////////////////
-	// LAB 5
-
-	int _do_animate; // Animation state machine
-
-	void update_settings(Mat& im);
+    ////////////////////////////////////
+    // LAB 4 (helpers; can be private)
+    void drawBoxReal(cv::Mat& im,
+        const std::vector<cv::Mat>& box3d,
+        CCameraReal& cam,
+        const cv::Scalar& color);
 
 public:
-	////////////////////////////////////
-	// Lab 3
+    // Exposed so lab4() can call it
+    void draw_simple_robot_on_real(cv::Mat& frame, CCameraReal& cam);
 
-	Mat createHT(Vec3d t, Vec3d r);
-	void create_simple_robot();
-	void draw_simple_robot();
+    ////////////////////////////////////
+    // LAB 5
 
-	////////////////////////////////////
-	// Lab 4
+    int _do_animate; // Animation state machine
 
-	void draw();
+public:
+    cv::Mat createHT(cv::Vec3d t, cv::Vec3d r);
 
-	////////////////////////////////////
-	// Lab 5
+    // Lab 3-style API
+    void create_simple_robot();
+    void draw_simple_robot();
 
-	// void fkine(); // Input joint variables, output end effector pose
+    ////////////////////////////////////
+    // Lab 4
 
-	////////////////////////////////////
-	// Lab 6
+    void draw();
 
-	// bool ikine(); // Input end effector pose, output joint angles
+    // Overload: size robot based on checkerboard square length (meters)
+    void create_simple_robot(float squareLenMeters);
+
+    ////////////////////////////////////
+    // Lab 5 (Forward Kinematics) – add impl in .cpp when ready
+    // cv::Mat fkine() const;
+
+    ////////////////////////////////////
+    // Lab 6 (Inverse Kinematics) – add impl in .cpp when ready
+    // bool ikine(const cv::Mat& T_target);
 };
-
