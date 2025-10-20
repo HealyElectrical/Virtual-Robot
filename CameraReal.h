@@ -1,45 +1,40 @@
+// CCameraReal.h
 #pragma once
+#include <string>
+#include <vector>
+#include <opencv2/core.hpp>
+#include <opencv2/videoio.hpp>
 
-#include <opencv2/opencv.hpp>
-#include "CameraVirtual.h"
-
-using namespace std;
-using namespace cv;
-
-class CCameraReal
-{
+class CCameraReal {
 public:
-	CCameraReal();
-	~CCameraReal();
+    CCameraReal();
+    ~CCameraReal();
+
+    void start_webcam(int webcam_id);
+    void set_resolution(int w, int h);
+    void get_image(cv::Mat& im);
+
+    bool load_camparam(const std::string& filename, cv::Mat& cam, cv::Mat& dist);
+    bool save_camparam(const std::string& filename, cv::Mat& cam, cv::Mat& dist);
+
+    bool detectBoardPose(cv::Mat& frame);
+
+    void transform_to_image(cv::Mat pt3d_mat, cv::Point2f& pt2d);
+    void transform_to_image(std::vector<cv::Mat> pts3d_mat, std::vector<cv::Point2f>& pts2d);
+
+    // Starts an interactive ChArUco capture and writes intrinsics/distortion to webcam_param.xml
+    void calibrate_board(int cam_id);
+
+    // Pose state
+    bool have_pose = false;
+    cv::Vec3d rvec_CB{ 0,0,0 }, tvec_CB{ 0,0,0 };
 
 private:
-	// Webcam
-	int _webcam_id;
-	cv::VideoCapture _vid_webcam;
+    int _webcam_id = 0;
+    cv::VideoCapture _vid_webcam;
 
-	// CVUI setting variables
-	bool _draw_on_board;
-	bool _draw_markers;
+    bool _draw_markers = true; // <— this fixes “_draw_markers undefined”
 
-	// Webcam model
-	Mat _cam_webcam_intrinsic;
-	Mat _cam_webcam_extrinsic;
-	Mat _cam_webcam_dist_coeff;
-
-public:
-
-	void start_webcam(int webcam_id);
-	void get_image(Mat& im);
-
-	bool save_camparam(string filename, Mat& cam, Mat& dist);
-	bool load_camparam(string filename, Mat& cam, Mat& dist);
-
-	void createChArUcoBoard();
-	void calibrate_board(int cam_id);
-
-	void transform_to_image(Mat pt3d_mat, Point2f& pt2d);
-	void transform_to_image(vector<Mat> pts3d_mat, vector<Point2f>& pts2d);
-
-	void update_settings(Mat &im);
+    cv::Mat _cam_webcam_intrinsic;   // K
+    cv::Mat _cam_webcam_dist_coeff;  // D
 };
-
