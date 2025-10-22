@@ -365,8 +365,9 @@ void CRobot::draw_link(cv::Mat& im, const std::vector<cv::Mat>& templ,
     drawBox(im, verts, color);
 }
 
+
 /*
-void CRobot::draw_scara(double& q1_deg, double& q2_deg, double& d3_m, double& q4_deg)
+void CRobot::draw_scara(double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
 {
     // === Reset canvas and update virtual camera ===
     _canvas = cv::Mat::zeros(_image_size, CV_8UC3) + BACKGROUND_COLOR;
@@ -379,9 +380,10 @@ void CRobot::draw_scara(double& q1_deg, double& q2_deg, double& d3_m, double& q4
     const float arm_len1 = 0.15f;
     const float arm_len2 = 0.15f;
     const float thickness = 0.03f;
-    const float prism_height = 0.15f;   // fixed 15 cm prismatic link
+    const float prism_height = 0.15f;
+    const float offset_z = 0.135f;   // 13.5 cm upward offset for prismatic
 
-    // --- Helper to make a 2 cm local axis ---
+    // --- Helper to draw small axes (2 cm) ---
     auto makeSmallAxis = [&](const cv::Mat& T_world)
         {
             auto A = createCoord();
@@ -395,59 +397,68 @@ void CRobot::draw_scara(double& q1_deg, double& q2_deg, double& d3_m, double& q4
             drawCoord(_canvas, A);
         };
 
-    // ===== Forward-kinematic transform chain =====
+    // ===== Forward-kinematic chain =====
     cv::Mat T0 = cv::Mat::eye(4, 4, CV_32F);
+
+    // Base rotation at origin, then lift the pedestal
     cv::Mat T01 = Rz_deg(q1_deg) * Tz(base_height / 2.0);
     cv::Mat T1 = T0 * T01;
 
+    // Shoulder rotation (joint 2)
     cv::Mat T12 = Tx(arm_len1) * Rz_deg(q2_deg);
     cv::Mat T2 = T1 * T12;
 
-    cv::Mat T23 = Tx(arm_len2);
+    // Elbow rotation (joint 3)
+    cv::Mat T23 = Tx(arm_len2) * Rz_deg(q3_deg);
     cv::Mat T3 = T2 * T23;
 
-    // ===== Block placements =====
+    // Prismatic translation (joint 4)
+    cv::Mat T34 = Tz(-d3_m);
+    cv::Mat T4 = T3 * T34;
 
+    // ===== Block placements =====
     // 1️⃣ Base pedestal (red)
     auto block1 = createBox(thickness, thickness, base_height);
-    transformPoints(block1, Tz(base_height / 2.0));
+    transformPoints(block1, T1 * Tz(-base_height / 2.0));
     blocks.push_back(block1);
 
-    // 2️⃣ First arm (green) — sits on top of pedestal
+    // 2️⃣ First arm (green)
     auto block2 = createBox(arm_len1, thickness, thickness);
     transformPoints(block2, T1 * Tx(arm_len1 / 2.0) * Tz(base_height / 2.0 + thickness / 2.0));
     blocks.push_back(block2);
 
-    // 3️⃣ Second arm (blue) — attached at end of first arm
+    // 3️⃣ Second arm (blue)
     auto block3 = createBox(arm_len2, thickness, thickness);
     transformPoints(block3, T2 * Tx(arm_len2 / 2.0) * Tz(base_height / 2.0 + thickness / 2.0));
     blocks.push_back(block3);
 
-    // 4️⃣ Prismatic link (yellow) — bottom starts level with bottom of block 3
+    // 4️⃣ Prismatic link (yellow)
     auto block4 = createBox(thickness, thickness, prism_height);
-    transformPoints(block4, T3 * Tz(-prism_height / 2.0 - d3_m + base_height / 2.0 + thickness / 2.0));
+    transformPoints(block4, T3 * Tz(-prism_height / 2.0 - d3_m + offset_z + base_height / 2.0 + thickness / 2.0));
     blocks.push_back(block4);
 
     // ===== Draw all links =====
     for (size_t i = 0; i < blocks.size(); ++i)
         drawBox(_canvas, blocks[i], chooseColors((int)i));
 
-    // ===== Draw local joint axes =====
-    makeSmallAxis(createHT(cv::Vec3d(0, 0, 0), cv::Vec3d(0, 0, 0))); // world
-    makeSmallAxis(T1);  // joint 1
-    makeSmallAxis(T2);  // joint 2
-    makeSmallAxis(T3);  // prismatic
+    // ===== Axes at each joint =====
+    makeSmallAxis(createHT(cv::Vec3d(0, 0, 0), cv::Vec3d(0, 0, q1_deg))); // base
+    makeSmallAxis(T1);  // shoulder joint
+    makeSmallAxis(T2);  // elbow joint
+    makeSmallAxis(T3);  // top of prismatic
+    makeSmallAxis(T4);  // bottom of prismatic
 
-    // ===== GUI panels =====
+    // ===== GUI =====
     _virtualcam.update_settings(_canvas);
-    update_joint_controls(q1_deg, q2_deg, d3_m, q4_deg);
+    update_joint_controls(q1_deg, q2_deg, q3_deg, d3_m);
 
     // ===== Display =====
     cvui::update();
     cv::imshow(CANVAS_NAME, _canvas);
 }
 */
-void CRobot::draw_scara(double& q1_deg, double& q2_deg, double& d3_m, double& q4_deg)
+
+void CRobot::draw_scara(double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
 {
     // === Reset canvas and update virtual camera ===
     _canvas = cv::Mat::zeros(_image_size, CV_8UC3) + BACKGROUND_COLOR;
@@ -457,12 +468,13 @@ void CRobot::draw_scara(double& q1_deg, double& q2_deg, double& d3_m, double& q4
 
     // --- Dimensions (meters) ---
     const float base_height = 0.15f;   // pedestal height
-    const float arm_len1 = 0.15f;   // first arm length
-    const float arm_len2 = 0.15f;   // second arm length
-    const float thickness = 0.03f;   // all arms thickness
-    const float prism_height = 0.15f;   // prismatic section height
+    const float arm_len1 = 0.15f;   // first arm
+    const float arm_len2 = 0.15f;   // second arm
+    const float thickness = 0.03f;   // link thickness
+    const float prism_height = 0.15f;   // prismatic section
+    const float offset_z = 0.135f;  // visual lift for prismatic section
 
-    // --- Helper to make a 2 cm local axis ---
+    // --- Helper to make a small (2cm) local axis ---
     auto makeSmallAxis = [&](const cv::Mat& T_world)
         {
             auto A = createCoord();
@@ -476,55 +488,59 @@ void CRobot::draw_scara(double& q1_deg, double& q2_deg, double& d3_m, double& q4
             drawCoord(_canvas, A);
         };
 
-    // ===== Forward-kinematic chain =====
+    // ===== Forward kinematics =====
     cv::Mat T0 = cv::Mat::eye(4, 4, CV_32F);
+
+    // 1️⃣ Base rotation about origin (red pedestal)
     cv::Mat T01 = Rz_deg(q1_deg) * Tz(base_height / 2.0);
     cv::Mat T1 = T0 * T01;
 
+    // 2️⃣ Shoulder rotation (green arm)
     cv::Mat T12 = Tx(arm_len1) * Rz_deg(q2_deg);
     cv::Mat T2 = T1 * T12;
 
-    cv::Mat T23 = Tx(arm_len2);
+    // 3️⃣ Elbow rotation (blue arm)
+    cv::Mat T23 = Tx(arm_len2) * Rz_deg(q3_deg);
     cv::Mat T3 = T2 * T23;
 
+    // 4️⃣ Prismatic joint (yellow)
+    cv::Mat T34 = Tz(-d3_m);
+    cv::Mat T4 = T3 * T34;
+
     // ===== Block placements =====
-    // 1️⃣ Base pedestal (red)
+    // Base pedestal (red)
     auto block1 = createBox(thickness, thickness, base_height);
-    transformPoints(block1, Tz(base_height / 2.0));
+    transformPoints(block1, T1 * Tz(0));
     blocks.push_back(block1);
 
-    // 2️⃣ First arm (green) — rests on top of pedestal
+    // First arm (green)
     auto block2 = createBox(arm_len1, thickness, thickness);
     transformPoints(block2, T1 * Tx(arm_len1 / 2.0) * Tz(base_height / 2.0 + thickness / 2.0));
     blocks.push_back(block2);
 
-    // 3️⃣ Second arm (blue) — attached to end of arm 1
+    // Second arm (blue)
     auto block3 = createBox(arm_len2, thickness, thickness);
     transformPoints(block3, T2 * Tx(arm_len2 / 2.0) * Tz(base_height / 2.0 + thickness / 2.0));
     blocks.push_back(block3);
 
-    // 4️⃣ Prismatic link (yellow) — lifted by +0.135 m and moves downward with d3
+    // Prismatic link (yellow)
     auto block4 = createBox(thickness, thickness, prism_height);
-    transformPoints(block4, T3 * Tz(-prism_height / 2.0 - d3_m + 0.135f + base_height / 2.0 + thickness / 2.0));
+    transformPoints(block4, T3 * Tz(-prism_height / 2.0 - d3_m + offset_z + base_height / 2.0 + thickness / 2.0));
     blocks.push_back(block4);
 
     // ===== Draw all blocks =====
     for (size_t i = 0; i < blocks.size(); ++i)
         drawBox(_canvas, blocks[i], chooseColors((int)i));
 
-    // ===== Draw axes at each block's position =====
-    // Axis at top of pedestal (block 1)
-    makeSmallAxis(T1 * Tz(base_height / 2.0));
-    // Axis at joint 2 (top of arm 1)
-    makeSmallAxis(T2 * Tz(base_height / 2.0 + thickness / 2.0));
-    // Axis at joint 3 (top of arm 2)
-    makeSmallAxis(T3 * Tz(base_height / 2.0 + thickness / 2.0));
-    // Axis following prismatic (bottom of yellow block)
-    makeSmallAxis(T3 * Tz(-prism_height - d3_m + base_height / 2.0 + thickness / 2.0));
+    // ===== Draw joint axes =====
+    makeSmallAxis(createHT(cv::Vec3d(0, 0, 0), cv::Vec3d(0, 0, q1_deg))); // between red & green
+    makeSmallAxis(T2);  // between green & blue
+    makeSmallAxis(T3);  // between blue & yellow
+    makeSmallAxis(T4);  // bottom of prismatic (moves down)
 
-    // ===== GUI panels =====
+    // ===== GUI =====
     _virtualcam.update_settings(_canvas);
-    update_joint_controls(q1_deg, q2_deg, d3_m, q4_deg);
+    update_joint_controls(q1_deg, q2_deg, q3_deg, d3_m);
 
     // ===== Display =====
     cvui::update();
@@ -532,9 +548,10 @@ void CRobot::draw_scara(double& q1_deg, double& q2_deg, double& d3_m, double& q4
 }
 
 
-
 cv::Mat& CRobot::canvas() { return _canvas; }
 
+
+/*
 void CRobot::update_joint_controls(double& q1_deg, double& q2_deg, double& d3_m, double& q4_deg)
 {
     int panel_x = _canvas.cols - 280;
@@ -569,6 +586,42 @@ void CRobot::update_joint_controls(double& q1_deg, double& q2_deg, double& d3_m,
     if (cvui::button(_canvas, panel_x + 70, panel_y, 100, 30, "Reset"))
     {
         q1_deg = q2_deg = q4_deg = 0.0;
+        d3_m = 0.0;
+    }
+}
+*/
+void CRobot::update_joint_controls(double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
+{
+    int panel_x = _canvas.cols - 280;
+    int panel_y = 100;
+
+    cv::rectangle(_canvas,
+        cv::Point(panel_x - 10, panel_y - 30),
+        cv::Point(panel_x + 270, panel_y + 340),
+        cv::Scalar(50, 50, 50), cv::FILLED);
+
+    cvui::window(_canvas, panel_x, panel_y, 260, 310, "SCARA Joint Controls");
+    panel_x += 10; panel_y += 30;
+
+    cvui::text(_canvas, panel_x, panel_y - 8, "q1 (deg)");
+    cvui::trackbar(_canvas, panel_x, panel_y, 240, &q1_deg, -180.0, 180.0);
+    panel_y += 50;
+
+    cvui::text(_canvas, panel_x, panel_y - 8, "q2 (deg)");
+    cvui::trackbar(_canvas, panel_x, panel_y, 240, &q2_deg, -180.0, 180.0);
+    panel_y += 50;
+
+    cvui::text(_canvas, panel_x, panel_y - 8, "q3 (deg)");
+    cvui::trackbar(_canvas, panel_x, panel_y, 240, &q3_deg, -180.0, 180.0);
+    panel_y += 50;
+
+    cvui::text(_canvas, panel_x, panel_y - 8, "d3 (m)");
+    cvui::trackbar(_canvas, panel_x, panel_y, 240, &d3_m, 0.0, 0.15);
+    panel_y += 50;
+
+    if (cvui::button(_canvas, panel_x + 70, panel_y, 100, 30, "Reset"))
+    {
+        q1_deg = q2_deg = q3_deg = 0.0;
         d3_m = 0.0;
     }
 }
