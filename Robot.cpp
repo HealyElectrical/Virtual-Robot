@@ -645,18 +645,18 @@ void CRobot::update_joint_controls(double& q1_deg, double& q2_deg, double& q3_de
     int panel_x = _canvas.cols - 280;
     int panel_y = 100;
 
-    // --- Draw window background like the old version ---
+    // Background panel (taller to fit EE pose sliders)
     cv::rectangle(_canvas,
         cv::Point(panel_x - 10, panel_y - 30),
-        cv::Point(panel_x + 270, panel_y + 340),
-        cv::Scalar(70, 70, 70), cv::FILLED);  // slightly lighter gray for contrast
+        cv::Point(panel_x + 270, panel_y + 520),
+        cv::Scalar(70, 70, 70), cv::FILLED);
 
-    // --- Window frame (same as old look) ---
-    cvui::window(_canvas, panel_x, panel_y, 260, 310, "SCARA Joint Controls");
+    // Window frame
+    cvui::window(_canvas, panel_x, panel_y, 260, 490, "SCARA Joint Controls");
     panel_x += 10;
     panel_y += 30;
 
-    // --- Joint sliders (same spacing, style, and font) ---
+    // --- Joint sliders ---
     cvui::text(_canvas, panel_x, panel_y - 8, "q1 (deg)");
     cvui::trackbar(_canvas, panel_x, panel_y, 240, &q1_deg, -180.0, 180.0);
     panel_y += 50;
@@ -671,15 +671,38 @@ void CRobot::update_joint_controls(double& q1_deg, double& q2_deg, double& q3_de
 
     cvui::text(_canvas, panel_x, panel_y - 8, "d3 (m)");
     cvui::trackbar(_canvas, panel_x, panel_y, 240, &d3_m, 0.0, 0.15);
+    panel_y += 60;
+
+    // --- Desired EE pose (mm / deg) ---
+    cvui::text(_canvas, panel_x, panel_y, "Desired EE Pose");
+    panel_y += 20;
+
+    cvui::text(_canvas, panel_x, panel_y - 8, "x_e (mm)");
+    cvui::trackbar(_canvas, panel_x, panel_y, 240, &ee_x_mm_, -300.0, 300.0);
     panel_y += 50;
 
-    // --- Reset button (same look/feel) ---
+    cvui::text(_canvas, panel_x, panel_y - 8, "y_e (mm)");
+    cvui::trackbar(_canvas, panel_x, panel_y, 240, &ee_y_mm_, -300.0, 300.0);
+    panel_y += 50;
+
+    cvui::text(_canvas, panel_x, panel_y - 8, "z_e (mm)");
+    cvui::trackbar(_canvas, panel_x, panel_y, 240, &ee_z_mm_, 0.0, 150.0);
+    panel_y += 50;
+
+    cvui::text(_canvas, panel_x, panel_y - 8, "theta_e (deg)");
+    cvui::trackbar(_canvas, panel_x, panel_y, 240, &ee_theta_deg_, -180.0, 180.0);
+    panel_y += 50;
+
+    // Reset (joints + pose)
     if (cvui::button(_canvas, panel_x + 70, panel_y, 100, 30, "Reset"))
     {
         q1_deg = q2_deg = q3_deg = 0.0;
         d3_m = 0.0;
+        ee_x_mm_ = ee_y_mm_ = ee_z_mm_ = 0.0;
+        ee_theta_deg_ = 0.0;
     }
 }
+
 void CRobot::draw_scara_on_real(cv::Mat& frame, CCameraReal& cam,
     double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
 {
@@ -774,14 +797,10 @@ void CRobot::draw_scara_world(CCameraReal& cam,
         return;
     }
 
-    // Draw onto the current live frame each cycle
-    // Expect caller to set _canvas = live frame before calling, or do it here from cam if you prefer
+    // Ensure we have a canvas (caller typically copied the live frame in)
     if (_canvas.empty()) _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
 
-    // UI (trackbars, buttons)
-    update_joint_controls(q1_deg, q2_deg, q3_deg, d3_m);
-
-    // Geometry (meters) – keep identical to virtual draw_scara()
+    // ---------------- Geometry (meters) — identical to virtual draw_scara() ----------------
     const float thickness = 0.03f;
     const float LINK_LENGTH = 0.15f;
     const float base_height = LINK_LENGTH - thickness / 2.0f;
@@ -804,22 +823,42 @@ void CRobot::draw_scara_world(CCameraReal& cam,
     cv::Mat T34 = Tz(-d3_m);
     cv::Mat T4 = T3 * T34;
 
-    // ===== Prisms with SAME placements as your virtual draw_scara() =====
+    // ---------------- Update EE pose readouts BEFORE drawing UI ----------------
+    // x,y,theta from T4; z is prismatic travel: 150 mm at top (d3=0) down to 0 mm as d3 increases.
+    {
+        const float x_m = T4.at<float>(0, 3);
+        const float y_m = T4.at<float>(1, 3);
+        const float R00 = T4.at<float>(0, 0);
+        const float R10 = T4.at<float>(1, 0);
+        const float theta_deg = static_cast<float>(std::atan2(R10, R00) * 180.0 / CV_PI);
+
+        ee_x_mm_ = 1000.0f * x_m;
+        ee_y_mm_ = 1000.0f * y_m;
+        ee_theta_deg_ = theta_deg;
+
+        const float z_travel_mm = 150.0f - static_cast<float>(d3_m * 1000.0);
+        ee_z_mm_ = std::max(0.0f, std::min(150.0f, z_travel_mm));
+    }
+
+    // ---------------- UI (trackbars, buttons) ----------------
+    update_joint_controls(q1_deg, q2_deg, q3_deg, d3_m);
+
+    // ---------------- Prisms with SAME placements as virtual draw_scara() ----------------
     std::vector<std::vector<cv::Mat>> prisms;
 
-    // 1) Base pedestal – center it on the base joint like your box version did
+    // 1) Base pedestal — centered on base joint
     auto p1 = createPrism(thickness, base_height, thickness);
     transformPoints(p1, T1 * Tz(-base_height / 2.0));
     prisms.push_back(p1);
 
     // 2) First arm
     auto p2 = createPrism(arm_len1, thickness, thickness);
-    transformPoints(p2, T1 * Tx(arm_len1 / 2.0) * Tz(base_height / 2.0 + thickness / 2.0 - thickness / 2.0)); // == Tz(base_height/2.0)
+    transformPoints(p2, T1 * Tx(arm_len1 / 2.0) * Tz(base_height / 2.0));
     prisms.push_back(p2);
 
     // 3) Second arm
     auto p3 = createPrism(arm_len2, thickness, thickness);
-    transformPoints(p3, T2 * Tx(arm_len2 / 2.0) * Tz(base_height / 2.0 + thickness / 2.0 - thickness / 2.0)); // == Tz(base_height/2.0)
+    transformPoints(p3, T2 * Tx(arm_len2 / 2.0) * Tz(base_height / 2.0));
     prisms.push_back(p3);
 
     // 4) Prismatic
@@ -833,13 +872,13 @@ void CRobot::draw_scara_world(CCameraReal& cam,
             chooseColors((int)i, RED, YELLOW, GREEN, MAGENTA));
     }
 
-    // ===== Axes in REAL camera (so they appear) =====
+    // ---------------- Axes in REAL camera (unchanged placement) ----------------
     // World axes at robot base
     auto W = createCoord();
     transformPoints(W, T0);
     drawCoordReal(_canvas, W, cam);
 
-    // Small joint axes like virtual
+    // Helper to shrink joint axes
     auto makeSmall = [&](std::vector<cv::Mat>& C)
         {
             for (auto& P : C) {
@@ -867,9 +906,15 @@ void CRobot::draw_scara_world(CCameraReal& cam,
     auto E = createCoord(); makeSmall(E); transformPoints(E, fixAxes); transformPoints(E, T4);
     drawCoordReal(_canvas, E, cam);
 
+    // ---------------- Present ----------------
     cvui::update();
     cv::imshow(CANVAS_NAME, _canvas);
 }
+
+
+
+
+
 
 // === Real-camera axis drawer (projects using CCameraReal, with Z flip to match your BoxReal) ===
 void CRobot::drawCoordReal(cv::Mat& im, std::vector<cv::Mat> coord3d, CCameraReal& cam)
@@ -895,4 +940,32 @@ void CRobot::drawCoordReal(cv::Mat& im, std::vector<cv::Mat> coord3d, CCameraRea
     cv::putText(im, "X", X + cv::Point2f(5, -5), cv::FONT_HERSHEY_SIMPLEX, 0.5, RED, 1);
     cv::putText(im, "Y", Y + cv::Point2f(5, -5), cv::FONT_HERSHEY_SIMPLEX, 0.5, GREEN, 1);
     cv::putText(im, "Z", Z + cv::Point2f(5, -5), cv::FONT_HERSHEY_SIMPLEX, 0.5, BLUE, 1);
+}
+void CRobot::draw_target_ee_world(CCameraReal& cam)
+{
+    if (!cam.have_pose) return;
+
+    // Convert mm to meters
+    const double ex = ee_x_mm_ / 1000.0;
+    const double ey = ee_y_mm_ / 1000.0;
+    const double ez = ee_z_mm_ / 1000.0;
+
+    // Target pose in WORLD (board) frame
+    cv::Mat T_target_W = T_WB_ * createHT(cv::Vec3d(ex, ey, ez),
+        cv::Vec3d(0.0, 0.0, ee_theta_deg_));
+
+    // Draw a small coordinate frame at the target pose
+    auto A = createCoord();
+    // Optionally scale a bit larger for visibility:
+    for (auto& P : A) {
+        P.at<float>(0, 0) *= 1.2f;
+        P.at<float>(1, 0) *= 1.2f;
+        P.at<float>(2, 0) *= 1.2f;
+    }
+    transformPoints(A, T_target_W);
+    drawCoordReal(_canvas, A, cam);
+
+    // Label
+    cv::putText(_canvas, "EE target",
+        cv::Point(12, 24), cv::FONT_HERSHEY_SIMPLEX, 0.6, YELLOW, 2);
 }

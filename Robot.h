@@ -101,7 +101,19 @@ void draw_scara_on_real(cv::Mat& frame, CCameraReal& cam,
     // Small helper so UI can draw onto our canvas without exposing the member
     cv::Mat& canvas();
     // Add this to Robot.h (public section)
+
+
+    // === Desired end-effector pose (UI, in mm/deg) ===
+    double ee_x_mm_ = 0.0;
+    double ee_y_mm_ = 0.0;
+    double ee_z_mm_ = 0.0;     // 0..150 mm
+    double ee_theta_deg_ = 0.0; // -180..180
+
+    // Draw axes using real camera (projection with Z-flip like boxes/prisms)
     void drawCoordReal(cv::Mat& im, std::vector<cv::Mat> coord3d, CCameraReal& cam);
+
+    // Draw the target EE pose axes in world (board) frame
+    void draw_target_ee_world(CCameraReal& cam);
 
 private:
     // ---- Lab 5 helpers & geometry (used by fkine and drawing) ----
@@ -131,6 +143,8 @@ private:
         std::vector<cv::Mat> prism3d,
         CCameraReal& cam,
         const cv::Scalar& colour);
+
+    
     ////////////////////////////////////
     // Lab 6 (Inverse Kinematics) – add impl in .cpp when ready
     // bool ikine(const cv::Mat& T_target);
