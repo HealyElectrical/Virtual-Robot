@@ -1,73 +1,118 @@
-#pragma once
+﻿#pragma once
 
+#include <vector>
 #include <opencv2/opencv.hpp>
 
 #include "CameraVirtual.h"
 #include "CameraReal.h"
+#include "constants.h"
+#include "Test.h"
 
-using namespace std;
-using namespace cv;
-using namespace dnn;
+//#include "Test.h"
 
 class CRobot
 {
 public:
-	CRobot();
-	~CRobot();
+    CRobot();
+    ~CRobot();
 
 private:
-	Size _image_size;
-	Mat _canvas;
+    cv::Size  _image_size;
+    cv::Point _image_center;
+    cv::Mat   _canvas;
 
-	void init();
+    // robot<cubes<8 vertexes/points>>
+    std::vector<std::vector<cv::Mat>> _simple_robot;
+    std::vector<std::vector<cv::Mat>> _scara_links;
+    bool _lab3;
 
-	////////////////////////////////////
-  // LAB 3
 
-	vector<vector<Mat>> _simple_robot;
+    CCameraVirtual _virtualcam;
+    CCameraReal    _realcam;
 
-	CCameraVirtual _virtualcam;
-	CCameraReal _realcam;
+    // Builders / helpers
+    std::vector<cv::Mat> createBox(float w, float h, float d);
+    std::vector<cv::Mat> createCoord();
 
-	std::vector<Mat> createBox(float w, float h, float d);
-	std::vector<Mat> createCoord();
+    void init();
+    void transformPoints(std::vector<cv::Mat>& points, cv::Mat T);
 
-	void transformPoints(std::vector<Mat>& points, Mat T);
+    void drawBox(cv::Mat& im, std::vector<cv::Mat> box3d, cv::Scalar colour);
+    void drawCoord(cv::Mat& im, std::vector<cv::Mat> coord3d);
+    void update_settings(cv::Mat& im);
+    Scalar chooseColors(int idx = 0, Scalar c0 = RUST, Scalar c1 = RUST, Scalar c2 = PURPLE, Scalar c3 = RUST, Scalar c4 = RED, Scalar c5 = BLUE);
 
-	void drawBox(Mat& im, std::vector<Mat> box3d, Scalar colour);
-	void drawCoord(Mat& im, std::vector<Mat> coord3d);
-
-	////////////////////////////////////
-	// LAB 4
-
-	////////////////////////////////////
-	// LAB 5
-
-	int _do_animate; // Animation state machine
-
-	void update_settings(Mat& im);
+    ////////////////////////////////////
+    // LAB 4 (helpers; can be private)
+    void drawBoxReal(cv::Mat& im,
+        const std::vector<cv::Mat>& box3d,
+        CCameraReal& cam,
+        const cv::Scalar& color);
 
 public:
-	////////////////////////////////////
-	// Lab 3
+    // Exposed so lab4() can call it
+    void draw_simple_robot_on_real(cv::Mat& frame, CCameraReal& cam);
 
-	Mat createHT(Vec3d t, Vec3d r);
-	void create_simple_robot();
-	void draw_simple_robot();
+public:
+    // Draw the simple robot onto the real frame with a Z-rotation (degrees)
+    void draw_rotating_robot_on_real(cv::Mat& frame, CCameraReal& cam, double angle_deg);
 
-	////////////////////////////////////
-	// Lab 4
+    ////////////////////////////////////
+    // LAB 5
 
-	void draw();
+    int _do_animate; // Animation state machine
 
-	////////////////////////////////////
-	// Lab 5
+public:
+    // NOTE: const so it can be used inside const helper functions
+    cv::Mat createHT(cv::Vec3d t, cv::Vec3d r) const;
 
-	// void fkine(); // Input joint variables, output end effector pose
+    // Lab 3-style API
+    void create_simple_robot();
+    void draw_simple_robot();
 
-	////////////////////////////////////
-	// Lab 6
 
-	// bool ikine(); // Input end effector pose, output joint angles
+
+    ////////////////////////////////////
+    // Lab 4
+    void draw();
+
+    // Overload: size robot based on checkerboard square length (meters)
+    void create_simple_robot(float squareLenMeters);
+
+    ////////////////////////////////////
+    // Lab 5 (Forward Kinematics) – public API used from template.cpp
+    cv::Mat fkine(double q1_deg, double q2_deg, double d3_m, double q4_deg) const;
+    void create_scara_templates();
+    void draw_scara(double& q1_deg, double& q2_deg, double& d3_m, double& q4_deg);
+    void update_joint_controls(double& q1_deg, double& q2_deg, double& d3_m, double& q4_deg);
+    void drawPrism(cv::Mat& im, std::vector<cv::Mat> prism3d, cv::Scalar colour);
+    std::vector<cv::Mat> createPrism(float w, float h, float d);
+
+    // Small helper so UI can draw onto our canvas without exposing the member
+    cv::Mat& canvas();
+private:
+    // ---- Lab 5 helpers & geometry (used by fkine and drawing) ----
+    // Tiny helpers to build transforms
+    cv::Mat Rz_deg(double deg) const;
+    cv::Mat Tx(double x) const;
+    cv::Mat Tz(double z) const;
+
+    // SCARA link lengths / offsets (meters) — per spec
+    double L1_ = 0.15;      // link 1 length (15 cm)
+    double L2_ = 0.15;      // link 2 length (15 cm)
+    double pedestalZ_ = 0.135; // 13.5 cm pedestal so prismatic 0 is at 0.15 m world Z
+
+    // Link box dimensions for drawing (meters) – 15 x 3 x 3 cm
+    double Bx_ = 0.15, By_ = 0.03, Bz_ = 0.03;
+
+    // Reusable templates for drawing links/end-effector (in local frames)
+    std::vector<cv::Mat> linkTemplate_; // box pointing +X, joint at -X face
+    std::vector<cv::Mat> effTemplate_;  // small tool box
+
+    // Draw a link/effector given a template and world transform
+    void draw_link(cv::Mat& im, const std::vector<cv::Mat>& templ, const cv::Mat& T_world, const cv::Scalar& color);
+
+    ////////////////////////////////////
+    // Lab 6 (Inverse Kinematics) – add impl in .cpp when ready
+    // bool ikine(const cv::Mat& T_target);
 };
-
