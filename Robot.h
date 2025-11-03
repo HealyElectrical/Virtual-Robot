@@ -40,10 +40,11 @@ private:
     void drawBox(cv::Mat& im, std::vector<cv::Mat> box3d, cv::Scalar colour);
     void drawCoord(cv::Mat& im, std::vector<cv::Mat> coord3d);
     void update_settings(cv::Mat& im);
-    Scalar chooseColors(int idx = 0, Scalar c0 = RUST, Scalar c1 = RUST, Scalar c2 = PURPLE, Scalar c3 = RUST, Scalar c4 = RED, Scalar c5 = BLUE);
+    cv::Scalar chooseColors(int idx = 0, cv::Scalar c0 = RUST, cv::Scalar c1 = RUST, cv::Scalar c2 = PURPLE, cv::Scalar c3 = RUST, cv::Scalar c4 = RED, cv::Scalar c5 = BLUE);
 
     ////////////////////////////////////
     // LAB 4 (helpers; can be private)
+public:    
     void drawBoxReal(cv::Mat& im,
         const std::vector<cv::Mat>& box3d,
         CCameraReal& cam,
@@ -70,7 +71,10 @@ public:
     void create_simple_robot();
     void draw_simple_robot();
 
-
+    // ==== In Robot.h (public) ====
+    void set_world_anchor(const cv::Vec3d& p_WB, const cv::Vec3d& rpy_WB);
+    void draw_scara_world(CCameraReal& cam,
+        double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m);
 
     ////////////////////////////////////
     // Lab 4
@@ -83,13 +87,22 @@ public:
     // Lab 5 (Forward Kinematics) – public API used from template.cpp
     cv::Mat fkine(double q1_deg, double q2_deg, double d3_m, double q4_deg) const;
     void create_scara_templates();
-    void draw_scara(double& q1_deg, double& q2_deg, double& d3_m, double& q4_deg);
-    void update_joint_controls(double& q1_deg, double& q2_deg, double& d3_m, double& q4_deg);
+    void draw_scara(double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m);
+    void update_joint_controls(double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m);
     void drawPrism(cv::Mat& im, std::vector<cv::Mat> prism3d, cv::Scalar colour);
     std::vector<cv::Mat> createPrism(float w, float h, float d);
 
+    // === Lab 5 Part B ===
+// Draw SCARA robot in the real camera frame (anchored to ArUco board)
+void draw_scara_on_real(cv::Mat& frame, CCameraReal& cam,
+                        double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m);
+
+
     // Small helper so UI can draw onto our canvas without exposing the member
     cv::Mat& canvas();
+    // Add this to Robot.h (public section)
+    void drawCoordReal(cv::Mat& im, std::vector<cv::Mat> coord3d, CCameraReal& cam);
+
 private:
     // ---- Lab 5 helpers & geometry (used by fkine and drawing) ----
     // Tiny helpers to build transforms
@@ -112,6 +125,12 @@ private:
     // Draw a link/effector given a template and world transform
     void draw_link(cv::Mat& im, const std::vector<cv::Mat>& templ, const cv::Mat& T_world, const cv::Scalar& color);
 
+    cv::Mat T_WB_ = cv::Mat::eye(4, 4, CV_32F); // Robot-base pose in Board frame
+
+    void drawPrismReal(cv::Mat& im,
+        std::vector<cv::Mat> prism3d,
+        CCameraReal& cam,
+        const cv::Scalar& colour);
     ////////////////////////////////////
     // Lab 6 (Inverse Kinematics) – add impl in .cpp when ready
     // bool ikine(const cv::Mat& T_target);

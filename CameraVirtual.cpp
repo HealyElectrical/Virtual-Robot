@@ -200,3 +200,4 @@ void CCameraVirtual::update_settings(Mat& im)
 	calculate_intrinsic();
 	calculate_extrinsic();
 }
+

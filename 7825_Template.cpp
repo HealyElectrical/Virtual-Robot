@@ -154,20 +154,71 @@ void lab4calibration(int cam_id)
         exit_key = waitKey(10);
     }
 }*/
-void lab5(int /*cam_id*/)
+/*void lab5(int cam_id)
 {
+    CCameraReal cam;
     CRobot robot;
 
     double q1_deg = 0.0;
     double q2_deg = 0.0;
-    double d3_m = 0.00;
-    double q4_deg = 0.0;
+    double q3_deg = 0.0;
+    double d3_m = 0.0;
+
+    const std::string windowName = CANVAS_NAME;
+    cv::namedWindow(windowName);
+    cvui::init(windowName);
 
     char key = -1;
-
     while (key != 'q' && key != 27)
     {
-        robot.draw_scara(q1_deg, q2_deg, d3_m, q4_deg);
+        cv::Mat frame;
+        cam.get_image(frame);
+        if (frame.empty()) continue;
+
+        // detect ChArUco pose
+        cam.detectBoardPose(frame);
+
+        // use camera feed as robot background
+        frame.copyTo(robot.canvas());
+
+        // draw SCARA robot (includes trackbars + reset button)
+        robot.draw_scara(q1_deg, q2_deg, q3_deg, d3_m);
+
+        cvui::update();
+        cv::imshow(windowName, robot.canvas());
+        key = (char)cv::waitKey(1);
+    }
+
+    cv::destroyAllWindows();
+}*/
+void lab5(int /*cam_id*/)
+{
+    CRobot robot;
+    CCameraReal cam;
+
+    // Place robot base on the board origin, standing "up" from the board.
+    // Adjust these if you want an offset or rotation relative to the board.
+    robot.set_world_anchor(cv::Vec3d(0.0, 0.0, 0.0),  // x,y,z meters on the board
+        cv::Vec3d(0.0, 0.0, 0.0)); // roll,pitch,yaw degrees
+
+    double q1_deg = 0.0, q2_deg = 0.0, q3_deg = 0.0, d3_m = 0.0;
+
+    char key = -1;
+    while (key != 'q' && key != 27)
+    {
+        cv::Mat frame;
+        cam.get_image(frame);
+        if (frame.empty()) { key = (char)cv::waitKey(1); continue; }
+
+        // Update pose if the board is visible (have_pose toggles internally)
+        cam.detectBoardPose(frame);
+
+        // Make the live frame the canvas background
+        frame.copyTo(robot.canvas());
+
+        // Draw robot in world (board) coordinates on the same window
+        robot.draw_scara_world(cam, q1_deg, q2_deg, q3_deg, d3_m);
+
         key = (char)cv::waitKey(1);
     }
 

@@ -461,7 +461,10 @@ void CRobot::draw_scara(double& q1_deg, double& q2_deg, double& q3_deg, double& 
     std::vector<std::vector<cv::Mat>> blocks;
 
     // === Reset canvas and update virtual camera ===
-    _canvas = cv::Mat::zeros(_image_size, CV_8UC3) + BLACK;
+    // Do NOT overwrite the canvas here — keep whatever background (e.g. live camera) is already in place.
+    if (_canvas.empty())
+        _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
+
     _lab3 = false;
 
     // ===== GUI =====
@@ -676,4 +679,220 @@ void CRobot::update_joint_controls(double& q1_deg, double& q2_deg, double& q3_de
         q1_deg = q2_deg = q3_deg = 0.0;
         d3_m = 0.0;
     }
+}
+void CRobot::draw_scara_on_real(cv::Mat& frame, CCameraReal& cam,
+    double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
+{
+    if (!cam.have_pose) return;
+
+    // Reset canvas = live frame
+    cv::Mat im = frame.clone();
+
+    // Forward kinematics (same as your virtual one)
+    const float base_height = 0.15f;
+    const float arm_len1 = 0.15f;
+    const float arm_len2 = 0.15f;
+    const float thickness = 0.03f;
+    const float prism_height = 0.15f;
+    const float offset_z = 0.135f;
+
+    std::vector<std::vector<cv::Mat>> blocks;
+    cv::Mat T0 = cv::Mat::eye(4, 4, CV_32F);
+    cv::Mat T01 = Rz_deg(q1_deg) * Tz(base_height / 2.0);
+    cv::Mat T1 = T0 * T01;
+    cv::Mat T12 = Tx(arm_len1) * Rz_deg(q2_deg);
+    cv::Mat T2 = T1 * T12;
+    cv::Mat T23 = Tx(arm_len2) * Rz_deg(q3_deg);
+    cv::Mat T3 = T2 * T23;
+    cv::Mat T34 = Tz(-d3_m);
+    cv::Mat T4 = T3 * T34;
+
+    // Build blocks
+    auto block1 = createBox(thickness, thickness, base_height);
+    transformPoints(block1, T1);
+    blocks.push_back(block1);
+
+    auto block2 = createBox(arm_len1, thickness, thickness);
+    transformPoints(block2, T1 * Tx(arm_len1 / 2.0));
+    blocks.push_back(block2);
+
+    auto block3 = createBox(arm_len2, thickness, thickness);
+    transformPoints(block3, T2 * Tx(arm_len2 / 2.0));
+    blocks.push_back(block3);
+
+    auto block4 = createBox(thickness, thickness, prism_height);
+    transformPoints(block4, T3 * Tz(-prism_height / 2.0 - d3_m + offset_z));
+    blocks.push_back(block4);
+
+    // Project to image using real camera
+    for (size_t i = 0; i < blocks.size(); ++i)
+        drawBoxReal(im, blocks[i], cam, chooseColors((int)i));
+
+    // Show in live feed
+    cv::imshow(CANVAS_NAME, im);
+}
+
+void CRobot::set_world_anchor(const cv::Vec3d& p_WB, const cv::Vec3d& rpy_WB)
+{
+    // Place robot base wrt the ChArUco board/world
+    T_WB_ = createHT(p_WB, rpy_WB); // meters + degrees
+}
+
+void CRobot::drawPrismReal(cv::Mat& im,
+    std::vector<cv::Mat> prism3d, CCameraReal& cam, const cv::Scalar& colour)
+{
+    if (!cam.have_pose) return;
+
+    // Match your BoxReal convention: flip Z before projecting
+    for (auto& P : prism3d) {
+        P.at<float>(2, 0) = -P.at<float>(2, 0);
+    }
+
+    std::vector<cv::Point2f> pts2d;
+    cam.transform_to_image(prism3d, pts2d);
+
+    static const int e1[12] = { 0,1,2,3,4,5,6,7,0,1,2,3 };
+    static const int e2[12] = { 1,2,3,0,5,6,7,4,4,5,6,7 };
+
+    if (pts2d.size() == 8) {
+        for (int i = 0; i < 12; ++i) {
+            cv::line(im, pts2d[e1[i]], pts2d[e2[i]], colour, 2, cv::LINE_AA);
+        }
+    }
+}
+
+// === REPLACE draw_scara_world with this version ===
+void CRobot::draw_scara_world(CCameraReal& cam,
+    double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
+{
+    if (!cam.have_pose) {
+        // Still show the joint UI even if pose not found
+        if (_canvas.empty()) _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
+        update_joint_controls(q1_deg, q2_deg, q3_deg, d3_m);
+        cvui::update();
+        cv::imshow(CANVAS_NAME, _canvas);
+        return;
+    }
+
+    // Draw onto the current live frame each cycle
+    // Expect caller to set _canvas = live frame before calling, or do it here from cam if you prefer
+    if (_canvas.empty()) _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
+
+    // UI (trackbars, buttons)
+    update_joint_controls(q1_deg, q2_deg, q3_deg, d3_m);
+
+    // Geometry (meters) – keep identical to virtual draw_scara()
+    const float thickness = 0.03f;
+    const float LINK_LENGTH = 0.15f;
+    const float base_height = LINK_LENGTH - thickness / 2.0f;
+    const float arm_len1 = LINK_LENGTH;
+    const float arm_len2 = LINK_LENGTH;
+    const float prism_height = LINK_LENGTH;
+    const float offset_z = 0.135f;
+
+    // World (board) base
+    cv::Mat T0 = T_WB_;
+    cv::Mat T01 = Rz_deg(q1_deg) * Tz(base_height / 2.0);
+    cv::Mat T1 = T0 * T01;
+
+    cv::Mat T12 = Tx(arm_len1) * Rz_deg(q2_deg);
+    cv::Mat T2 = T1 * T12;
+
+    cv::Mat T23 = Tx(arm_len2) * Rz_deg(q3_deg);
+    cv::Mat T3 = T2 * T23;
+
+    cv::Mat T34 = Tz(-d3_m);
+    cv::Mat T4 = T3 * T34;
+
+    // ===== Prisms with SAME placements as your virtual draw_scara() =====
+    std::vector<std::vector<cv::Mat>> prisms;
+
+    // 1) Base pedestal – center it on the base joint like your box version did
+    auto p1 = createPrism(thickness, base_height, thickness);
+    transformPoints(p1, T1 * Tz(-base_height / 2.0));
+    prisms.push_back(p1);
+
+    // 2) First arm
+    auto p2 = createPrism(arm_len1, thickness, thickness);
+    transformPoints(p2, T1 * Tx(arm_len1 / 2.0) * Tz(base_height / 2.0 + thickness / 2.0 - thickness / 2.0)); // == Tz(base_height/2.0)
+    prisms.push_back(p2);
+
+    // 3) Second arm
+    auto p3 = createPrism(arm_len2, thickness, thickness);
+    transformPoints(p3, T2 * Tx(arm_len2 / 2.0) * Tz(base_height / 2.0 + thickness / 2.0 - thickness / 2.0)); // == Tz(base_height/2.0)
+    prisms.push_back(p3);
+
+    // 4) Prismatic
+    auto p4 = createPrism(thickness, prism_height, thickness);
+    transformPoints(p4, T3 * Tz(-prism_height / 2.0 - d3_m + offset_z + base_height / 2.0 + thickness / 2.0 - 2.0f * thickness));
+    prisms.push_back(p4);
+
+    // Draw prisms using real-camera projection
+    for (size_t i = 0; i < prisms.size(); ++i) {
+        drawPrismReal(_canvas, prisms[i], cam,
+            chooseColors((int)i, RED, YELLOW, GREEN, MAGENTA));
+    }
+
+    // ===== Axes in REAL camera (so they appear) =====
+    // World axes at robot base
+    auto W = createCoord();
+    transformPoints(W, T0);
+    drawCoordReal(_canvas, W, cam);
+
+    // Small joint axes like virtual
+    auto makeSmall = [&](std::vector<cv::Mat>& C)
+        {
+            for (auto& P : C) {
+                P.at<float>(0, 0) *= 0.4f;
+                P.at<float>(1, 0) *= 0.4f;
+                P.at<float>(2, 0) *= 0.4f;
+            }
+        };
+
+    // Shoulder joint
+    cv::Mat fixAxes = createHT(cv::Vec3d(0, 0, (base_height + thickness) / 2.0f), cv::Vec3d(0, 0, 0));
+    auto J0 = createCoord(); makeSmall(J0); transformPoints(J0, fixAxes); transformPoints(J0, T1);
+    drawCoordReal(_canvas, J0, cam);
+
+    // Elbow joint
+    auto J1 = createCoord(); makeSmall(J1); transformPoints(J1, fixAxes); transformPoints(J1, T2);
+    drawCoordReal(_canvas, J1, cam);
+
+    // Center of prismatic joint (rotate Y by 90 like virtual)
+    fixAxes = createHT(cv::Vec3d(0, 0, (base_height + thickness) / 2.0f), cv::Vec3d(0, 90, 0));
+    auto J2 = createCoord(); makeSmall(J2); transformPoints(J2, fixAxes); transformPoints(J2, T3);
+    drawCoordReal(_canvas, J2, cam);
+
+    // End-effector axes
+    auto E = createCoord(); makeSmall(E); transformPoints(E, fixAxes); transformPoints(E, T4);
+    drawCoordReal(_canvas, E, cam);
+
+    cvui::update();
+    cv::imshow(CANVAS_NAME, _canvas);
+}
+
+// === Real-camera axis drawer (projects using CCameraReal, with Z flip to match your BoxReal) ===
+void CRobot::drawCoordReal(cv::Mat& im, std::vector<cv::Mat> coord3d, CCameraReal& cam)
+{
+    if (!cam.have_pose) return;
+
+    // Flip Z like drawBoxReal/drawPrismReal
+    auto flipped = coord3d;
+    for (auto& P : flipped) {
+        P.at<float>(2, 0) = -P.at<float>(2, 0);
+    }
+
+    cv::Point2f O, X, Y, Z;
+    cam.transform_to_image(flipped[0], O);
+    cam.transform_to_image(flipped[1], X);
+    cam.transform_to_image(flipped[2], Y);
+    cam.transform_to_image(flipped[3], Z);
+
+    cv::line(im, O, X, RED, 2);
+    cv::line(im, O, Y, GREEN, 2);
+    cv::line(im, O, Z, BLUE, 2);
+
+    cv::putText(im, "X", X + cv::Point2f(5, -5), cv::FONT_HERSHEY_SIMPLEX, 0.5, RED, 1);
+    cv::putText(im, "Y", Y + cv::Point2f(5, -5), cv::FONT_HERSHEY_SIMPLEX, 0.5, GREEN, 1);
+    cv::putText(im, "Z", Z + cv::Point2f(5, -5), cv::FONT_HERSHEY_SIMPLEX, 0.5, BLUE, 1);
 }
