@@ -198,6 +198,22 @@ public:
     SolveMode solve_mode_;     // default set in constructor
     bool elbow_up_toggle_;     // IK branch choice
 
-   
+    //for the aruco box
+private:
+    // --- Linear IK animation API (kept private if only used internally) ---
+    void start_linear_anim();
+    void stop_linear_anim();
+    bool step_linear_anim(double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m);
+
+    // --- Linear IK animation state ---
+    bool   lin_anim_running_ = false;
+    int    lin_phase_ = 0;     // 0: x, 1: y, 2: z, 3: wrist
+    double lin_step_mm_ = 5.0;   // mm per frame (x/y/z)
+    double lin_step_deg_ = 5.0;   // deg per frame (wrist yaw)
+    double lin_theta_accum_deg_ = 0.0;   // accumulated wrist rotation
+
+    //for the aruco box
+
+
 
 };

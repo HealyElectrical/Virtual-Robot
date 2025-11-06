@@ -833,29 +833,56 @@ void CRobot::update_joint_controls(double& q1_deg, double& q2_deg, double& q3_de
     panel_y += 40;
 
     // --- Animation controls ---
-    if (!anim_running_) {
-        if (cvui::button(_canvas, panel_x, panel_y, 120, 30, "Animate Part B")) start_anim_partB();
-    } else {
-        if (cvui::button(_canvas, panel_x, panel_y, 120, 30, "Stop"))           stop_anim_partB();
+
+    // --- Animation controls (existing Part B) ---
+   // --- Animation & quick actions row (two columns) ---
+    {
+        const int xL = panel_x;           // left column
+        const int xR = panel_x + 130;     // right column
+        const int y0 = panel_y;           // first row (buttons)
+        const int row_h = 40;
+
+        // Left/top: Animate Part B (or Stop)
+        if (!anim_running_) {
+            if (cvui::button(_canvas, xL, y0, 120, 30, "Animate Part B"))
+                start_anim_partB();
+        }
+        else {
+            if (cvui::button(_canvas, xL, y0, 120, 30, "Stop"))
+                stop_anim_partB();
+        }
+
+        // Right/top: Animate Linear IK (or Stop)
+        if (!lin_anim_running_) {
+            if (cvui::button(_canvas, xR, y0, 120, 30, "Animate Linear IK"))
+                start_linear_anim();
+        }
+        else {
+            if (cvui::button(_canvas, xR, y0, 120, 30, "Stop Linear IK"))
+                stop_linear_anim();
+        }
+
+        // Left/bottom: Reset (directly under Animate Part B)
+        if (cvui::button(_canvas, xL, y0 + row_h, 120, 30, "Reset")) {
+            q1_deg = q2_deg = q3_deg = 0.0;
+            d3_m = 0.0;
+            ee_x_mm_ = ee_y_mm_ = 0.0;
+            ee_z_mm_ = 150.0;
+            ee_theta_deg_ = 0.0;
+            show_applied_pose_ = false;
+            solve_mode_ = SolveMode::FK;
+            elbow_up_toggle_ = true;
+        }
+
+        // Right/bottom: Apply Pose (optional cosmetic)
+        if (cvui::button(_canvas, xR, y0 + row_h, 120, 30, "Apply Pose")) {
+            show_applied_pose_ = true;
+        }
+
+        // advance panel_y past both rows
+        panel_y = y0 + 2 * row_h;
     }
 
-    // Apply Pose flag (cosmetic)
-    if (cvui::button(_canvas, panel_x + 130, panel_y, 100, 30, "Apply Pose")) {
-        show_applied_pose_ = true;
-    }
-    panel_y += 40;
-
-    // --- Reset ---
-    if (cvui::button(_canvas, panel_x + 70, panel_y, 100, 30, "Reset")) {
-        q1_deg = q2_deg = q3_deg = 0.0;
-        d3_m = 0.0;
-        ee_x_mm_ = ee_y_mm_ = 0.0;
-        ee_z_mm_ = 150.0;     // top position by your spec
-        ee_theta_deg_ = 0.0;
-        show_applied_pose_ = false;
-        solve_mode_ = SolveMode::FK;
-        elbow_up_toggle_ = true;
-    }
 }
 
 
@@ -1281,6 +1308,14 @@ void CRobot::draw_scara_world(CCameraReal& cam,
         }
     }
 
+    
+    if (lin_anim_running_) {
+        if (!step_linear_anim(q1_deg, q2_deg, q3_deg, d3_m)) {
+            lin_anim_running_ = false;
+        }
+    }
+
+
     // If pose is missing: draw NOTHING new for robot, just paste last overlay over the live frame
     if (!cam.have_pose)
     {
@@ -1671,4 +1706,155 @@ bool CRobot::ikine(double x_m, double y_m, double z_m, double theta_deg,
     const bool reachable_z = (z_m >= pedestalZ_ + D3_MIN_ - 1e-6) &&
         (z_m <= pedestalZ_ + D3_MAX_ + 1e-6);
     return reachable_xy && reachable_z;
+}
+
+
+void CRobot::start_linear_anim()
+{
+    // Stop the other animation if running to avoid conflicts
+    anim_running_ = false;
+
+    lin_anim_running_ = true;
+    lin_phase_ = 0;
+    lin_theta_accum_deg_ = 0.0;
+}
+
+void CRobot::stop_linear_anim()
+{
+    lin_anim_running_ = false;
+    lin_phase_ = 0;
+    lin_theta_accum_deg_ = 0.0;
+}
+
+
+// Returns true while running, false when finished
+bool CRobot::step_linear_anim(double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
+{
+    if (!lin_anim_running_) return false;
+
+    // Current EE readouts are kept up-to-date by your draw paths
+    double ex_mm = static_cast<double>(ee_x_mm_);
+    double ey_mm = static_cast<double>(ee_y_mm_);
+    double ez_mm = static_cast<double>(ee_z_mm_);       // travel: 150(top) → 0(bottom)
+    double eth = static_cast<double>(ee_theta_deg_);
+
+    auto clamp = [](double v, double lo, double hi) { return std::max(lo, std::min(hi, v)); };
+
+    // Helper to "try set" a new IK target in one shot (mm/deg → joints)
+    auto try_target = [&](double tx_mm, double ty_mm, double tz_travel_mm, double t_theta_deg) -> bool
+        {
+            // Convert to IK inputs
+            const double xt = tx_mm / 1000.0;
+            const double yt = ty_mm / 1000.0;
+
+            // Slider semantics: z_travel_mm = 150 - d3*1000
+            double d3_from_travel = (150.0 - tz_travel_mm) / 1000.0;     // meters
+            d3_from_travel = clamp(d3_from_travel, D3_MIN_, D3_MAX_);
+            const double zt = pedestalZ_ + d3_from_travel;
+
+            double q1d, q2d, d3d, q4d;
+            if (ikine(xt, yt, zt, t_theta_deg, q1d, q2d, d3d, q4d, elbow_up_toggle_))
+            {
+                // Write back to joint sliders (q3_deg holds wrist)
+                q1_deg = q1d;
+                q2_deg = q2d;
+                d3_m = d3d;
+                q3_deg = q4d;
+                return true;
+            }
+            return false;
+        };
+
+    // Workspace max radius in mm (small epsilon to avoid edge singularities)
+    const double r_max_mm = 1000.0 * (L1_ + L2_) - 0.5;
+    const double r_now_mm = std::hypot(ex_mm, ey_mm);
+
+    switch (lin_phase_)
+    {
+        // 0) Move along +x direction from 300 → 100 mm (your spec says “from 300-100”)
+    case 0:
+    {
+        double target_x = ex_mm - lin_step_mm_;
+        target_x = std::max(100.0, target_x);
+        if (try_target(target_x, 0.0, ez_mm, eth))
+        {
+            ex_mm = target_x;
+            ey_mm = 0.0;
+            if (std::abs(ex_mm - 100.0) <= 1e-6) lin_phase_ = 1;
+        }
+        else
+        {
+            // If IK fails at this edge, just advance the phase
+            lin_phase_ = 1;
+        }
+        break;
+    }
+
+    // 1) Move along +y from 0 → y_max at x = 100 mm
+    case 1:
+    {
+        const double x_fixed = 100.0;
+        const double y_max = std::sqrt(std::max(0.0, r_max_mm * r_max_mm - x_fixed * x_fixed));
+        double target_y = std::min(y_max, ey_mm + lin_step_mm_);
+
+        if (try_target(x_fixed, target_y, ez_mm, eth))
+        {
+            ex_mm = x_fixed;
+            ey_mm = target_y;
+            if (ey_mm >= y_max - 1e-6) lin_phase_ = 2;
+        }
+        else
+        {
+            // If we can’t step further, go to next phase
+            lin_phase_ = 2;
+        }
+        break;
+    }
+
+    // 2) Move "down" in z (i.e., reduce travel to 0 mm)
+    case 2:
+    {
+        double target_z_travel = std::max(0.0, ez_mm - lin_step_mm_);
+        if (try_target(ex_mm, ey_mm, target_z_travel, eth))
+        {
+            ez_mm = target_z_travel;
+            if (ez_mm <= 1e-6) lin_phase_ = 3;
+        }
+        else
+        {
+            lin_phase_ = 3;
+        }
+        break;
+    }
+
+    // 3) Rotate wrist +360 deg at the final position
+    case 3:
+    {
+        double target_theta = eth + lin_step_deg_;
+        if (target_theta > 180.0) target_theta -= 360.0; // keep UI nice; IK only needs relative yaw
+        if (try_target(ex_mm, ey_mm, ez_mm, target_theta))
+        {
+            lin_theta_accum_deg_ += lin_step_deg_;
+            // done?
+            if (lin_theta_accum_deg_ >= 360.0 - 1e-6)
+            {
+                stop_linear_anim();
+                return false;
+            }
+        }
+        else
+        {
+            // If the wrist step fails (shouldn’t), end gracefully
+            stop_linear_anim();
+            return false;
+        }
+        break;
+    }
+
+    default:
+        stop_linear_anim();
+        return false;
+    }
+
+    return true;
 }
