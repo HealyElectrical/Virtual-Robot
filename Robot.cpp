@@ -1728,321 +1728,8 @@ bool CRobot::step_anim_partB(double& q1_deg, double& q2_deg, double& q3_deg, dou
 
     return true;
 }
-/*
-void CRobot::draw_scara_dispatch(CCameraReal& cam,
-    double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
-{
-    // Make sure we have a canvas of some sort
-    if (_canvas.empty())
-        _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
-
-    if (view_mode_ == ViewMode::AR)
-    {
-        // --- AR path (live camera background + world draw) ---
-        cv::Mat frame;
-        cam.get_image(frame);
-        if (!frame.empty()) {
-            last_live_frame_ = frame;
-            frame.copyTo(_canvas);
-        }
-        else if (!last_live_frame_.empty()) {
-            last_live_frame_.copyTo(_canvas); // avoid blinking if a frame hiccups
-        }
-        else {
-            _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
-        }
-
-        // Update board pose (if visible)
-        cam.detectBoardPose(last_live_frame_.empty() ? _canvas : last_live_frame_);
-
-        // Draw robot in world coords (this also updates EE readouts and runs animation)
-        draw_scara_world(cam, q1_deg, q2_deg, q3_deg, d3_m);
-
-        // Optionally draw a labeled 'applied pose' target
-        if (show_applied_pose_) {
-            draw_target_ee_world(cam); // uses ee_* values you already mirror
-        }
-    }
-    else
-    {
-        // --- Virtual path (no camera needed) ---
-        _canvas = cv::Mat::zeros(_image_size, CV_8UC3) + BACKGROUND_COLOR;
-
-        // Update the virtual camera UI (left panel)
-        _virtualcam.update_settings(_canvas);
-
-        // Draw the virtual robot with your existing function
-        draw_scara(q1_deg, q2_deg, q3_deg, d3_m);
-
-        // If you want: show a simple target marker at the mirrored EE pose in virtual view
-        if (show_applied_pose_) {
-            // Build a tiny coord at (ee_x_mm_/1000, ee_y_mm_/1000, ee_z_mm_/1000) in the virtual world
-            auto A = createCoord();
-            for (auto& P : A) { P.at<float>(0, 0) *= 1.2f; P.at<float>(1, 0) *= 1.2f; P.at<float>(2, 0) *= 1.2f; }
-            cv::Mat T_target = createHT(cv::Vec3d(ee_x_mm_ / 1000.0, ee_y_mm_ / 1000.0, ee_z_mm_ / 1000.0),
-                cv::Vec3d(0, 0, ee_theta_deg_));
-            transformPoints(A, T_target);
-            drawCoord(_canvas, A);
-            cv::putText(_canvas, "EE target (virtual)", cv::Point(12, 24),
-                cv::FONT_HERSHEY_SIMPLEX, 0.6, YELLOW, 2);
-        }
-
-        // Flush UI
-        cvui::update();
-        cv::imshow(CANVAS_NAME, _canvas);
-    }
-}*/
-
-/*void CRobot::draw_scara_dispatch(CCameraReal& cam,
-    double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
-{
-    if (_canvas.empty())
-        _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
-
-    if (view_mode_ == ViewMode::AR)
-    {
-        // 1) Grab a clean frame
-        cv::Mat frame;
-        cam.get_image(frame);
-
-        if (!frame.empty()) {
-            last_live_frame_ = frame;
-        }
-        else if (last_live_frame_.empty()) {
-            _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
-            cv::imshow(CANVAS_NAME, _canvas);
-            cvui::update();
-            return;
-        }
-
-        // Work with a fresh copy that has NO overlays yet
-        cv::Mat cube_layer = last_live_frame_.clone();
-
-        // 2) Try drawing the cube on the CLEAN image FIRST
-        const float kMarkerLen = 0.02042f; // meters
-        const float kCubeH = 0.030f;   // meters
-        bool cube_ok = cam.draw_cube_on_marker(cube_layer, 50, kMarkerLen, kCubeH);
-
-        // 3) This becomes the canvas we show
-        cube_layer.copyTo(_canvas);
-
-        // 4) Now it is safe to overlay pose axes, robot, UI, etc.
-        cam.detectBoardPose(_canvas);
-        draw_scara_world(cam, q1_deg, q2_deg, q3_deg, d3_m);
-
-        // Status banner
-        cv::rectangle(_canvas, cv::Rect(6, 6, 360, 28), cv::Scalar(0, 0, 0), cv::FILLED);
-        if (cube_ok) {
-            cv::putText(_canvas, "Marker 50 detected", cv::Point(12, 26),
-                cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
-        }
-        else {
-            cv::putText(_canvas, "Marker 50 NOT detected", cv::Point(12, 26),
-                cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 0, 255), 2);
-        }
-
-        if (show_applied_pose_) {
-            draw_target_ee_world(cam);
-        }
-
-        cv::imshow(CANVAS_NAME, _canvas);
-        cvui::update();
-    }
-    else
-    {
-        _canvas = cv::Mat::zeros(_image_size, CV_8UC3) + BACKGROUND_COLOR;
-        _virtualcam.update_settings(_canvas);
-        draw_scara(q1_deg, q2_deg, q3_deg, d3_m);
-        if (show_applied_pose_) {
-            auto A = createCoord();
-            for (auto& P : A) { P.at<float>(0, 0) *= 1.2f; P.at<float>(1, 0) *= 1.2f; P.at<float>(2, 0) *= 1.2f; }
-            cv::Mat T_target = createHT(
-                cv::Vec3d(ee_x_mm_ / 1000.0, ee_y_mm_ / 1000.0, ee_z_mm_ / 1000.0),
-                cv::Vec3d(0, 0, ee_theta_deg_));
-            transformPoints(A, T_target);
-            drawCoord(_canvas, A);
-            cv::putText(_canvas, "EE target (virtual)", cv::Point(12, 24),
-                cv::FONT_HERSHEY_SIMPLEX, 0.6, YELLOW, 2);
-        }
-        cv::imshow(CANVAS_NAME, _canvas);
-        cvui::update();
-    }
-}*/
-
 
 /*
-void CRobot::draw_scara_dispatch(CCameraReal& cam,
-    double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
-{
-    if (_canvas.empty())
-        _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
-
-    if (view_mode_ == ViewMode::AR)
-    {
-        // 1) Grab a clean frame
-        cv::Mat frame;
-        cam.get_image(frame);
-
-        if (!frame.empty()) {
-            last_live_frame_ = frame;
-        }
-        else if (last_live_frame_.empty()) {
-            _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
-            cv::imshow(CANVAS_NAME, _canvas);
-            cvui::update();
-            return;
-        }
-
-        // Work with a fresh copy that has NO overlays yet
-        cv::Mat cube_layer = last_live_frame_.clone();
-
-        // 2) Draw cube on the clean image first (no banner)
-        const float kMarkerLen = 0.02042f; // meters
-        const float kCubeH = 0.030f;    // meters
-        (void)cam.draw_cube_on_marker(cube_layer, 50, kMarkerLen, kCubeH);
-
-        // 3) This becomes the canvas we show
-        cube_layer.copyTo(_canvas);
-
-        // 4) Now overlay pose axes, robot, UI, etc.
-        cam.detectBoardPose(_canvas);
-        draw_scara_world(cam, q1_deg, q2_deg, q3_deg, d3_m);
-
-        if (show_applied_pose_) {
-            draw_target_ee_world(cam);
-        }
-
-        cv::imshow(CANVAS_NAME, _canvas);
-        cvui::update();
-    }
-    else
-    {
-        _canvas = cv::Mat::zeros(_image_size, CV_8UC3) + BACKGROUND_COLOR;
-        _virtualcam.update_settings(_canvas);
-        draw_scara(q1_deg, q2_deg, q3_deg, d3_m);
-
-        if (show_applied_pose_) {
-            auto A = createCoord();
-            for (auto& P : A) {
-                P.at<float>(0, 0) *= 1.2f;
-                P.at<float>(1, 0) *= 1.2f;
-                P.at<float>(2, 0) *= 1.2f;
-            }
-            cv::Mat T_target = createHT(
-                cv::Vec3d(ee_x_mm_ / 1000.0, ee_y_mm_ / 1000.0, ee_z_mm_ / 1000.0),
-                cv::Vec3d(0, 0, ee_theta_deg_));
-            transformPoints(A, T_target);
-            drawCoord(_canvas, A);
-        }
-
-        cv::imshow(CANVAS_NAME, _canvas);
-        cvui::update();
-    }
-}
-*/
-
-/*void CRobot::draw_scara_dispatch(CCameraReal& cam,
-    double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
-{
-    if (_canvas.empty())
-        _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
-
-    if (view_mode_ == ViewMode::AR)
-    {
-        // 1) Grab a clean frame
-        cv::Mat frame;
-        cam.get_image(frame);
-
-        if (!frame.empty()) {
-            last_live_frame_ = frame;
-        }
-        else if (last_live_frame_.empty()) {
-            _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
-            cv::imshow(CANVAS_NAME, _canvas);
-            cvui::update();
-            return;
-        }
-
-        // Work on a copy with no overlays yet
-        cv::Mat cube_layer = last_live_frame_.clone();
-
-        // 2) Draw cube on the clean image first
-        const float kMarkerLen = 0.02042f; // meters
-        const float kCubeH = 0.030f;    // meters
-        (void)cam.draw_cube_on_marker(cube_layer, 50, kMarkerLen, kCubeH);
-
-        // 3) Promote to canvas to continue all other overlays
-        cube_layer.copyTo(_canvas);
-
-        // 4) Update board pose, draw robot in world coords
-        cam.detectBoardPose(_canvas);
-        draw_scara_world(cam, q1_deg, q2_deg, q3_deg, d3_m);
-
-        // 5) Optional target overlay
-        if (show_applied_pose_) {
-            draw_target_ee_world(cam);
-        }
-
-        // 6) If we have marker-50 pose in board frame, print it
-        {
-            cv::Vec3d rvec_BM, tvec_BM;
-            if (cam.get_marker_pose_in_board(50, rvec_BM, tvec_BM)) {
-                // Compute yaw (about board Z) from rvec_BM
-                cv::Mat Rbm;
-                cv::Rodrigues(rvec_BM, Rbm);
-                double yaw_rad = std::atan2(Rbm.at<double>(1, 0), Rbm.at<double>(0, 0));
-                double yaw_deg = yaw_rad * 180.0 / 3.14159265358979323846;
-
-                // Position in mm for readability
-                double x_mm = 1000.0 * tvec_BM[0];
-                double y_mm = 1000.0 * tvec_BM[1];
-                double z_mm = 1000.0 * tvec_BM[2];
-
-                char buf[160];
-                std::snprintf(buf, sizeof(buf),
-                    "Marker 50 in Board: x=%.1f mm, y=%.1f mm, z=%.1f mm, yaw=%.1f deg",
-                    x_mm, y_mm, z_mm, yaw_deg);
-
-                // Draw a small background and the text
-                int baseline = 0;
-                cv::Size ts = cv::getTextSize(buf, cv::FONT_HERSHEY_SIMPLEX, 0.6, 2, &baseline);
-                cv::Rect bg(10, 10, ts.width + 12, ts.height + 12);
-                cv::rectangle(_canvas, bg, cv::Scalar(0, 0, 0), cv::FILLED);
-                cv::putText(_canvas, buf, cv::Point(16, 10 + ts.height + 2),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 255), 2);
-            }
-        }
-
-        cv::imshow(CANVAS_NAME, _canvas);
-        cvui::update();
-    }
-    else
-    {
-        // Virtual mode
-        _canvas = cv::Mat::zeros(_image_size, CV_8UC3) + BACKGROUND_COLOR;
-        _virtualcam.update_settings(_canvas);
-        draw_scara(q1_deg, q2_deg, q3_deg, d3_m);
-
-        if (show_applied_pose_) {
-            auto A = createCoord();
-            for (auto& P : A) {
-                P.at<float>(0, 0) *= 1.2f;
-                P.at<float>(1, 0) *= 1.2f;
-                P.at<float>(2, 0) *= 1.2f;
-            }
-            cv::Mat T_target = createHT(
-                cv::Vec3d(ee_x_mm_ / 1000.0, ee_y_mm_ / 1000.0, ee_z_mm_ / 1000.0),
-                cv::Vec3d(0, 0, ee_theta_deg_));
-            transformPoints(A, T_target);
-            drawCoord(_canvas, A);
-        }
-
-        cv::imshow(CANVAS_NAME, _canvas);
-        cvui::update();
-    }
-}
-*/
-
 void CRobot::draw_scara_dispatch(CCameraReal& cam,
     double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
 {
@@ -2141,8 +1828,84 @@ void CRobot::draw_scara_dispatch(CCameraReal& cam,
         cvui::update();
     }
 }
+*/
 
+void CRobot::draw_scara_dispatch(CCameraReal& cam,
+    double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
+{
+    if (_canvas.empty())
+        _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
 
+    if (view_mode_ == ViewMode::AR)
+    {
+        // --- AR branch (unchanged setup) ---
+        cv::Mat frame;
+        cam.get_image(frame);
+        if (!frame.empty()) { last_live_frame_ = frame; }
+        else if (last_live_frame_.empty()) {
+            _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
+            cv::imshow(CANVAS_NAME, _canvas);
+            cvui::update();
+            return;
+        }
+
+        cv::Mat detect_scratch = last_live_frame_.clone();
+        cam.detectBoardPose(detect_scratch);
+
+        _canvas = last_live_frame_.clone();
+
+        const float kMarkerLen = 0.02042f;
+        const float kCubeH = 0.030f;
+        (void)cam.draw_cube_on_marker(_canvas, 50, kMarkerLen, kCubeH);
+
+        // NEW: advance any running animations before drawing the robot
+        tick_animations(q1_deg, q2_deg, q3_deg, d3_m);
+
+        // draw robot in world (uses pose computed above)
+        draw_scara_world(cam, q1_deg, q2_deg, q3_deg, d3_m);
+
+        if (show_applied_pose_) {
+            draw_target_ee_world(cam);
+        }
+
+        cv::imshow(CANVAS_NAME, _canvas);
+        cvui::update();
+    }
+    else
+    {
+        // --- VIRTUAL branch ---
+        _canvas = cv::Mat::zeros(_image_size, CV_8UC3) + BACKGROUND_COLOR;
+
+        // NEW: advance any running animations here too
+        tick_animations(q1_deg, q2_deg, q3_deg, d3_m);
+
+        // left-panel virtual camera UI
+        _virtualcam.update_settings(_canvas);
+
+        // draw the robot in pure virtual space
+        draw_scara(q1_deg, q2_deg, q3_deg, d3_m);
+
+        if (show_applied_pose_) {
+            // visualize desired EE pose in virtual view
+            auto A = createCoord();
+            for (auto& P : A) {
+                P.at<float>(0, 0) *= 1.2f;
+                P.at<float>(1, 0) *= 1.2f;
+                P.at<float>(2, 0) *= 1.2f;
+            }
+            cv::Mat T_target = createHT(
+                cv::Vec3d(ee_x_mm_ / 1000.0, ee_y_mm_ / 1000.0, ee_z_mm_ / 1000.0),
+                cv::Vec3d(0, 0, ee_theta_deg_));
+            transformPoints(A, T_target);
+            drawCoord(_canvas, A);
+            cv::putText(_canvas, "EE target (virtual)", cv::Point(12, 24),
+                cv::FONT_HERSHEY_SIMPLEX, 0.6, YELLOW, 2);
+        }
+
+        cv::imshow(CANVAS_NAME, _canvas);
+        cvui::update();
+    }
+}
 
 
 // Put this in Robot.cpp (and declare in Robot.h if you want), used by both AR + Virtual
@@ -2332,7 +2095,16 @@ void CRobot::start_linear_anim()
     lin_anim_running_ = true;
     lin_phase_ = 0;
     lin_theta_accum_deg_ = 0.0;
+
+    // Cache the EE pose at the start so we can return to it later
+    start_ex_mm_ = static_cast<double>(ee_x_mm_);
+    start_ey_mm_ = static_cast<double>(ee_y_mm_);
+    start_ez_mm_ = static_cast<double>(ee_z_mm_);     // travel: 150..0
+    start_eth_deg_ = static_cast<double>(ee_theta_deg_);
+
+    lin_ret_t_ = 0.0;        // reset for the eventual return
 }
+
 
 void CRobot::stop_linear_anim()
 {
@@ -2427,17 +2199,37 @@ bool CRobot::step_linear_anim(double& q1_deg, double& q2_deg, double& q3_deg, do
     }
 
     // 2) Move "down" in z (i.e., reduce travel to 0 mm)
+    // 2) Move "down" in z (i.e., reduce travel to 0 mm)
     case 2:
     {
         double target_z_travel = std::max(0.0, ez_mm - lin_step_mm_);
         if (try_target(ex_mm, ey_mm, target_z_travel, eth))
         {
             ez_mm = target_z_travel;
-            if (ez_mm <= 1e-6) lin_phase_ = 3;
+
+            // if we reached the bottom, prepare return movement
+            if (ez_mm <= 1e-6)
+            {
+                // snapshot where we are now (the "from" pose for return)
+                ret_from_ex_mm_ = ex_mm;
+                ret_from_ey_mm_ = ey_mm;
+                ret_from_ez_mm_ = ez_mm;           // should be ~0
+                ret_from_eth_deg_ = eth;
+
+                lin_ret_t_ = 0.0;                    // reset interpolation
+                lin_phase_ = 4;                      // jump to RETURN phase
+            }
         }
         else
         {
-            lin_phase_ = 3;
+            // could not step further; still attempt a return
+            ret_from_ex_mm_ = ex_mm;
+            ret_from_ey_mm_ = ey_mm;
+            ret_from_ez_mm_ = ez_mm;
+            ret_from_eth_deg_ = eth;
+
+            lin_ret_t_ = 0.0;
+            lin_phase_ = 4;
         }
         break;
     }
@@ -2465,7 +2257,38 @@ bool CRobot::step_linear_anim(double& q1_deg, double& q2_deg, double& q3_deg, do
         }
         break;
     }
+    // 4) Return to the original EE pose across x, y, z, and theta
+    case 4:
+    {
+        // progress 0 -> 1
+        lin_ret_t_ = std::min(1.0, lin_ret_t_ + lin_ret_t_step_);
 
+        // linear blend in task space: target = (1 - t)*from + t*start
+        const double tx_mm = (1.0 - lin_ret_t_) * ret_from_ex_mm_ + lin_ret_t_ * start_ex_mm_;
+        const double ty_mm = (1.0 - lin_ret_t_) * ret_from_ey_mm_ + lin_ret_t_ * start_ey_mm_;
+        const double tz_tr = (1.0 - lin_ret_t_) * ret_from_ez_mm_ + lin_ret_t_ * start_ez_mm_;
+        // optional: also blend wrist angle
+        const double tth_deg = (1.0 - lin_ret_t_) * ret_from_eth_deg_ + lin_ret_t_ * start_eth_deg_;
+
+        if (try_target(tx_mm, ty_mm, tz_tr, tth_deg))
+        {
+            if (lin_ret_t_ >= 1.0 - 1e-9)
+            {
+                // snap to exact start (one last IK solve to eliminate tiny drift)
+                (void)try_target(start_ex_mm_, start_ey_mm_, start_ez_mm_, start_eth_deg_);
+
+                stop_linear_anim();
+                return false;
+            }
+        }
+        else
+        {
+            // IK failed mid-return: end gracefully
+            stop_linear_anim();
+            return false;
+        }
+        break;
+    }
     default:
         stop_linear_anim();
         return false;
@@ -2544,3 +2367,24 @@ bool CRobot::maybe_track_cube(CCameraReal& cam,
     return true;
 }
 
+// Call once per frame to advance any running animations.
+// Skips when tracking a cube so your robot does not fight the tracker.
+void CRobot::tick_animations(double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
+{
+    if (track_cube_) return; // do not animate while tracking a marker
+
+    bool advanced = false;
+
+    if (lin_anim_running_)
+        advanced |= step_linear_anim(q1_deg, q2_deg, q3_deg, d3_m);
+
+    if (anim_running_)
+        advanced |= step_anim_partB(q1_deg, q2_deg, q3_deg, d3_m);
+
+    if (advanced)
+    {
+        // keep EE readouts in sync after joints moved
+        cv::Mat T = fkine(q1_deg, q2_deg, d3_m, q3_deg);
+        update_ee_readout_from_T(T, d3_m);
+    }
+}

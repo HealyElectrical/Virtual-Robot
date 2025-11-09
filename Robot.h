@@ -197,6 +197,7 @@ public:
     SolveMode solve_mode_;     // default set in constructor
     bool elbow_up_toggle_;     // IK branch choice
 
+    void tick_animations(double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m);
 
 
 
@@ -212,6 +213,15 @@ private:
     double lin_step_mm_ = 5.0;   // mm per frame (x/y/z)
     double lin_step_deg_ = 5.0;   // deg per frame (wrist yaw)
     double lin_theta_accum_deg_ = 0.0;   // accumulated wrist rotation
+
+
+    // linear "return to start" state
+    bool    lin_return_enabled_ = true;   // set false if you want to skip the return
+    double  start_ex_mm_ = 0, start_ey_mm_ = 0, start_ez_mm_ = 150, start_eth_deg_ = 0; // EE pose at anim start
+    double  ret_from_ex_mm_ = 0, ret_from_ey_mm_ = 0, ret_from_ez_mm_ = 0, ret_from_eth_deg_ = 0; // pose at the bottom
+    double  lin_ret_t_ = 0.0;            // 0 -> 1 interpolation parameter
+    double  lin_ret_t_step_ = 0.02;      // how fast to interpolate back (0.01..0.05 feels nice)
+
 
     //for the aruco box
     // --- Cube tracking state (Lab 6) ---
