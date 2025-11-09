@@ -2,6 +2,7 @@
 
 #include <opencv2/opencv.hpp>
 #include "constants.h"
+#include "Test.h"
 
 using namespace std;
 using namespace cv;
@@ -41,3 +42,4 @@ public:
 
 	void update_settings(Mat& im);
 };
+

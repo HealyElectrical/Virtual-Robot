@@ -1,4 +1,4 @@
-﻿#include "stdafx.h"
+#include "stdafx.h"
 
 #include "CameraVirtual.h"
 #include <cmath>
@@ -12,22 +12,22 @@ CCameraVirtual::CCameraVirtual()
 }
 
 CCameraVirtual::~CCameraVirtual()
-{
-}
+{}
 
-void CCameraVirtual::init(Size image_size)
+void CCameraVirtual::init (Size image_size)
 {
 	//////////////////////////////////////
 	// CVUI interface default variables
 
-	_cam_setting_f = 3;     // Focal length in mm
-	_cam_setting_x = 0;     // mm
-	_cam_setting_y = -500;     // mm
-	_cam_setting_z = 0;  // mm
-	_cam_setting_roll = 0; // degrees
-	_cam_setting_pitch = -90;  // degrees
-	_cam_setting_yaw = 0;    // degrees
+	_cam_setting_f = 0; // why do we set this twice???
 
+	_cam_setting_x = 0; // units in mm
+	_cam_setting_y = -500; // units in mm
+	_cam_setting_z = 0; // units in mm
+
+	_cam_setting_roll = 0; // units in degrees
+	_cam_setting_pitch = 0; // units in degrees
+	_cam_setting_yaw = -90; // units in degrees
 
 	//////////////////////////////////////
 	// Virtual Camera intrinsic
@@ -36,7 +36,7 @@ void CCameraVirtual::init(Size image_size)
 
 	_pixel_size = 0.0000046; // Units of m
 	_principal_point = Point2f(image_size / 2); // this is the line that centres the figure 
-
+	
 	calculate_intrinsic();
 
 	//////////////////////////////////////
@@ -52,49 +52,18 @@ void CCameraVirtual::calculate_intrinsic() {
 	float cx = _principal_point.x;
 	float cy = _principal_point.y;
 
-	_cam_virtual_intrinsic = (Mat1f(3, 4) <<
-		fx, 0, cx, 0,
+	_cam_virtual_intrinsic = (Mat1f(3, 4) << fx, 0, cx, 0,
 		0, fy, cy, 0,
 		0, 0, 1, 0);
 }
 
+void CCameraVirtual::calculate_extrinsic() {
+	Vec3d t(_cam_setting_x / 1000.0, _cam_setting_y / 1000.0, _cam_setting_z / 1000.0); // mm to m
+	Vec3d r(_cam_setting_roll, _cam_setting_pitch, _cam_setting_yaw); // degrees
 
-
-/*void CCameraVirtual::calculate_extrinsic() {
-	Vec3d t(
-		_cam_setting_x / 1000.0,
-		-_cam_setting_z / 1000.0,  // your inverted Z->Y mapping
-		_cam_setting_y / 1000.0
-	);
-
-	// roll, pitch, yaw  (but we want: pitch about Y, yaw about Z)
-	// Your sliders are swapped, so pass them swapped:
-	Vec3d r(
-		_cam_setting_roll,      // roll -> X
-		_cam_setting_yaw,       // 👈 pitch input becomes yaw slider’s value
-		_cam_setting_pitch      // 👈 yaw input becomes pitch slider’s value
-	);
-
+	// Use your createHT function to get the matrix
 	_cam_virtual_extrinsic = createHT(t, r);
 }
-*/
-
-void CCameraVirtual::calculate_extrinsic() {
-	// Convert from mm → m and invert translation (camera motion)
-	Vec3d t(_cam_setting_x / 1000.0,
-		_cam_setting_y / 1000.0,
-		_cam_setting_z / 1000.0);
-
-	Vec3d r(_cam_setting_pitch, _cam_setting_roll, _cam_setting_yaw);
-
-	// Get camera pose (rotation + translation)
-	Mat T_cam = createHT(t, r);
-
-	// Invert to get world-to-camera transform (the actual extrinsic matrix)
-	_cam_virtual_extrinsic = T_cam.inv();
-}
-
-
 
 void CCameraVirtual::transform_to_image(Mat pt3d_mat, Point2f& pt) {
 	// Transform to camera coordinates
@@ -110,12 +79,10 @@ void CCameraVirtual::transform_to_image(std::vector<Mat> pts3d_mat, std::vector<
 	pts2d.clear();
 	for (const auto& pt3d : pts3d_mat) {
 		Point2f pt2d;
-		transform_to_image(pt3d, pt2d); // Reuse the overloaded single point function
+      transform_to_image(pt3d, pt2d); // Reuse the overloaded single point function
 		pts2d.push_back(pt2d);
 	}
 }
-
-
 
 Mat CCameraVirtual::createHT(Vec3d t, Vec3d r) // TODO: Create Homogeneous Transformation Matrix
 {
@@ -142,7 +109,7 @@ Mat CCameraVirtual::createHT(Vec3d t, Vec3d r) // TODO: Create Homogeneous Trans
 	double h = cb * sg;
 	double i = cb * cg;
 
-	return ((Mat1f(4, 4) <<
+	return ((Mat1f(4, 4) << 
 		a, b, c, t[0],
 		d, e, f, t[1],
 		g, h, i, t[2],
@@ -200,4 +167,3 @@ void CCameraVirtual::update_settings(Mat& im)
 	calculate_intrinsic();
 	calculate_extrinsic();
 }
-
