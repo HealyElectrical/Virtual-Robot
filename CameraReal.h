@@ -1,45 +1,74 @@
+// CCameraReal.h
 #pragma once
 
-#include <opencv2/opencv.hpp>
-#include "CameraVirtual.h"
+#include <string>
+#include <vector>
+#include <opencv2/core.hpp>
+#include <opencv2/videoio.hpp>
 
-using namespace std;
-using namespace cv;
-
-class CCameraReal
-{
+class CCameraReal {
 public:
-	CCameraReal();
-	~CCameraReal();
+    CCameraReal();
+    ~CCameraReal();
+
+    void start_webcam(int webcam_id);
+    void set_resolution(int w, int h);
+    void get_image(cv::Mat& im);
+
+    bool load_camparam(const std::string& filename, cv::Mat& cam, cv::Mat& dist);
+    bool save_camparam(const std::string& filename, cv::Mat& cam, cv::Mat& dist);
+
+    bool detectBoardPose(cv::Mat& frame);
+
+    void transform_to_image(cv::Mat pt3d_mat, cv::Point2f& pt2d);
+    void transform_to_image(std::vector<cv::Mat> pts3d_mat, std::vector<cv::Point2f>& pts2d);
+
+    // Starts an interactive Charuco capture and writes intrinsics/distortion to webcam_param.xml
+    void calibrate_board(int cam_id);
+
+    // Pose state
+    bool have_pose = false;
+    cv::Vec3d rvec_CB{ 0, 0, 0 };
+    cv::Vec3d tvec_CB{ 0, 0, 0 };
+
+
+    ///////////// lab 6 ///////////////
+// Draw a cube on top of a specific ArUco marker (default: ID 50).
+// markerLen and cubeH are in meters (use your real values).
+    bool draw_cube_on_marker(cv::Mat& frame, int marker_id = 50,
+        float markerLen = 0.02042f, float cubeH = 0.03f);
+
+    // Returns the pose of the requested marker in the board (world) frame.
+    // Requires: have_pose == true (board pose known this frame)
+    // and that draw_cube_on_marker() has seen this marker this frame.
+    bool get_marker_pose_in_board(int marker_id, cv::Vec3d& rvec_BM, cv::Vec3d& tvec_BM) const;
+
+    // Cache the last detected marker pose in CAMERA frame (from draw_cube_on_marker)
+    bool      last_marker_ok_ = false;
+    int       last_marker_id_ = -1;
+    cv::Vec3d last_marker_rvec_C_ = cv::Vec3d(0, 0, 0);
+    cv::Vec3d last_marker_tvec_C_ = cv::Vec3d(0, 0, 0);
 
 private:
-	// Webcam
-	int _webcam_id;
-	cv::VideoCapture _vid_webcam;
+    int _webcam_id = 0;
+    cv::VideoCapture _vid_webcam;
 
-	// CVUI setting variables
-	bool _draw_on_board;
-	bool _draw_markers;
+    bool _draw_markers = true; // fixes "_draw_markers undefined"
 
-	// Webcam model
-	Mat _cam_webcam_intrinsic;
-	Mat _cam_webcam_extrinsic;
-	Mat _cam_webcam_dist_coeff;
+    cv::Mat _cam_webcam_intrinsic;   // K
+    cv::Mat _cam_webcam_dist_coeff;  // D
 
-public:
+//lab6
+    // --- Marker-50 pose cache ---
+    bool  m50_have_cache_ = false;
+    cv::Vec3d m50_rvec_cache_{ 0,0,0 };
+    cv::Vec3d m50_tvec_cache_{ 0,0,0 };
+    int   m50_miss_count_ = 0;
+    // How many consecutive missed frames we will keep drawing the last pose
+    int   m50_miss_grace_ = 5;
+    // Low-pass smoothing factor [0..1], higher = snappier
+    double m50_alpha_ = 0.6;
 
-	void start_webcam(int webcam_id);
-	void get_image(Mat& im);
 
-	bool save_camparam(string filename, Mat& cam, Mat& dist);
-	bool load_camparam(string filename, Mat& cam, Mat& dist);
-
-	void createChArUcoBoard();
-	void calibrate_board(int cam_id);
-
-	void transform_to_image(Mat pt3d_mat, Point2f& pt2d);
-	void transform_to_image(vector<Mat> pts3d_mat, vector<Point2f>& pts2d);
-
-	void update_settings(Mat &im);
+    
 };
-
