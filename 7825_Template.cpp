@@ -344,6 +344,55 @@ void lab7(int cam_id)
     cv::destroyAllWindows();
 }
 
+/*void lab7(int cam_id)
+{
+    CRobot robot;
+    robot.set_view_mode(ViewMode::AR);
+
+    CCameraReal cam;
+    cam.start_webcam(cam_id);
+    cam.set_resolution(1280, 720);
+
+    robot.set_world_anchor(cv::Vec3d(0, 0, 0), cv::Vec3d(0, 0, 0));
+
+    double q1_deg = 0.0;
+    double q2_deg = 0.0;
+    double q3_deg = 0.0;
+    double d3_m = 0.0;
+
+    cv::Mat debug_frame;
+
+    for (;;)
+    {
+        // Your lab 6/7 AR drawing & trajectories
+        robot.draw_scara_dispatch(cam, q1_deg, q2_deg, q3_deg, d3_m);
+
+        // Extra window showing marker IDs for debugging
+        cam.get_image(debug_frame);
+        if (!debug_frame.empty())
+        {
+            cam.draw_marker_ids(debug_frame);
+            cv::imshow("Marker IDs", debug_frame);
+        }
+
+        int key = cv::waitKey(1) & 0xFF;
+        if (key == 27 || key == 'q')
+            break;
+
+        if (key == 'h')
+            robot.start_lab7_home_target_traj(q1_deg, q2_deg, q3_deg, d3_m);
+
+        if (key == 'm')
+            robot.start_traj_to_marker(cam, 50, q1_deg, q2_deg, q3_deg, d3_m);
+
+        if (key == 'a') robot.set_view_mode(ViewMode::AR);
+        if (key == 'v') robot.set_view_mode(ViewMode::Virtual);
+    }
+
+    cv::destroyAllWindows();
+}*/
+
+
 
 int main(int argc, char* argv[])
 {

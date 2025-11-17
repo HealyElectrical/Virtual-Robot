@@ -255,24 +255,28 @@ private:
 public:
     // ...
 
-    // Lab 7: high-level helpers
+    // Lab 7: joint-space traj (already added earlier)
     void start_lab7_home_target_traj(double& q1_deg, double& q2_deg,
         double& q3_deg, double& d3_m);
     void start_traj_to_marker(CCameraReal& cam, int marker_id,
         double& q1_deg, double& q2_deg,
         double& q3_deg, double& d3_m);
 
+    // === Lab 7C: Cartesian trajectory (ctraj) ===
+    void start_ctraj_to_marker(CCameraReal& cam, int marker_id,
+        double& q1_deg, double& q2_deg,
+        double& q3_deg, double& d3_m);
+
 private:
     // ...
 
-    // Lab 7: scalar 5th-order trajectory
     Poly5Coeffs compute_poly5(double q0, double q1,
         double qd0, double qd1) const;
     std::vector<double> jtraj_scalar(double q0, double q1,
         double qd0, double qd1,
         int nSteps) const;
 
-    // Lab 7: multi-joint trajectory storage
+    // Joint-space trajectory data (already added)
     bool traj_running_ = false;
     int  traj_step_ = 0;
     int  traj_nsteps_ = 0;
@@ -281,9 +285,19 @@ private:
     std::vector<double> traj_q3_;
     std::vector<double> traj_d3_;
 
-    // Lab 7: internal helpers
-    void start_joint_traj(const double q0[4], const double q1[4],
-        int nSteps);
+    void start_joint_traj(const double q0[4], const double q1[4], int nSteps);
     bool step_joint_traj(double& q1_deg, double& q2_deg,
+        double& q3_deg, double& d3_m);
+
+    // === NEW: Cartesian trajectory data for Lab 7C ===
+    bool ctraj_running_ = false;
+    int  ctraj_step_ = 0;
+    int  ctraj_nsteps_ = 0;
+    std::vector<double> ctraj_x_;   // meters
+    std::vector<double> ctraj_y_;   // meters
+    std::vector<double> ctraj_z_;   // meters
+    std::vector<double> ctraj_th_;  // degrees
+
+    bool step_ctraj(double& q1_deg, double& q2_deg,
         double& q3_deg, double& d3_m);
 };

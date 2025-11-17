@@ -49,6 +49,13 @@ public:
     cv::Vec3d last_marker_rvec_C_ = cv::Vec3d(0, 0, 0);
     cv::Vec3d last_marker_tvec_C_ = cv::Vec3d(0, 0, 0);
 
+/// <summary>
+/// //lab7-functions//////
+/// </summary>
+// Debug helper: draw IDs for all visible ArUco markers
+// Debug helper: draw IDs for all visible ArUco markers
+    bool draw_marker_ids(cv::Mat& frame);
+
 private:
     int _webcam_id = 0;
     cv::VideoCapture _vid_webcam;

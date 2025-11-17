@@ -1,10 +1,13 @@
 // CameraReal.cpp
 #include "stdafx.h"
 #include "CameraReal.h"
+#include <cstdio>
+
 
 #include <string>
 #include <vector>
 #include <iostream>
+
 
 #include <opencv2/core.hpp>
 #include <opencv2/videoio.hpp>
@@ -209,7 +212,7 @@ void CCameraReal::calibrate_board(int /*cam_id*/)
 }
 
 
-bool CCameraReal::detectBoardPose(cv::Mat& frame) {
+/*bool CCameraReal::detectBoardPose(cv::Mat& frame) {
     if (frame.empty()) { have_pose = false; return false; }
 
     // Detect markers
@@ -310,7 +313,107 @@ bool CCameraReal::detectBoardPose(cv::Mat& frame) {
 
     return true;
 }
+*/
 
+bool CCameraReal::detectBoardPose(cv::Mat& frame) {
+   if (frame.empty()) { have_pose = false; return false; }
+
+   // Detect markers
+   cv::aruco::Dictionary dict = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
+   cv::aruco::DetectorParameters detParams;
+   cv::aruco::ArucoDetector detector(dict, detParams);
+
+   std::vector<int> ids;
+   std::vector<std::vector<cv::Point2f>> corners;
+   detector.detectMarkers(frame, corners, ids);
+   if (ids.empty()) { have_pose = false; return false; }
+   if (_draw_markers) cv::aruco::drawDetectedMarkers(frame, corners, ids);
+
+   // Interpolate ChArUco
+   cv::aruco::CharucoBoard board(cv::Size(kSquaresX, kSquaresY), kSquareLen, kMarkerLen, dict);
+   cv::aruco::CharucoDetector charuco(board, cv::aruco::CharucoParameters(), detParams);
+
+   cv::Mat chCorners, chIds; // Nx1 CV_32FC2 and Nx1 CV_32S
+   charuco.detectBoard(frame, chCorners, chIds, corners, ids);
+   if (chCorners.empty() || chIds.empty() || chCorners.rows != chIds.rows) { have_pose = false; return false; }
+   if (chCorners.total() < 6) { have_pose = false; return false; }
+
+   // Build 3D/2D
+   const auto& boardCorners = board.getChessboardCorners();
+   std::vector<cv::Point3f> objPts; objPts.reserve((size_t)chCorners.rows);
+   std::vector<cv::Point2f> imgPts; imgPts.reserve((size_t)chCorners.rows);
+   for (int i = 0; i < chCorners.rows; ++i) {
+      int cid = chIds.at<int>(i);
+      if (cid >= 0 && cid < (int)boardCorners.size()) {
+         imgPts.push_back(chCorners.at<cv::Point2f>(i));
+         objPts.push_back(boardCorners[cid]);
+      }
+   }
+   if (objPts.size() < 6) { have_pose = false; return false; }
+
+   // Pose
+   cv::Vec3d rvec, tvec;
+   if (!cv::solvePnP(objPts, imgPts, _cam_webcam_intrinsic, _cam_webcam_dist_coeff, rvec, tvec, false, cv::SOLVEPNP_ITERATIVE)) {
+      have_pose = false; return false;
+   }
+   rvec_CB = rvec;
+   tvec_CB = tvec;
+   have_pose = true;
+
+   // BIG axes (your convention: X:+Y, Y:+X, Z:-Z)
+   const float L = 2.0f * kSquareLen;
+   std::vector<cv::Point3f> axes3D = { {0,0,0}, {0, L,0}, {L,0,0}, {0,0,-L} };
+   std::vector<cv::Point2f> axes2D;
+   cv::projectPoints(axes3D, rvec_CB, tvec_CB, _cam_webcam_intrinsic, _cam_webcam_dist_coeff, axes2D);
+   if (axes2D.size() == 4) {
+      cv::line(frame, axes2D[0], axes2D[1], cv::Scalar(0, 0, 255), 3); // X red
+      cv::line(frame, axes2D[0], axes2D[2], cv::Scalar(0, 255, 0), 3); // Y green
+      cv::line(frame, axes2D[0], axes2D[3], cv::Scalar(255, 0, 0), 3); // Z blue
+      cv::putText(frame, "X", axes2D[1] + cv::Point2f(6, -6), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 0, 255), 2);
+      cv::putText(frame, "Y", axes2D[2] + cv::Point2f(6, -6), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
+      cv::putText(frame, "Z", axes2D[3] + cv::Point2f(6, -6), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 0, 0), 2);
+   }
+
+   // MINI axes at each marker center - very defensive
+   cv::Mat Rcb; cv::Rodrigues(rvec_CB, Rcb);
+   cv::Mat Rt_2x3; cv::hconcat(Rcb.col(0), Rcb.col(1), Rt_2x3); cv::hconcat(Rt_2x3, cv::Mat(tvec_CB), Rt_2x3);
+   cv::Mat H = _cam_webcam_intrinsic * Rt_2x3;
+   double det = cv::determinant(H);
+   if (std::abs(det) < 1e-12) return true; // skip minis if degenerate
+   cv::Mat Hinv = H.inv();
+
+   auto imgToBoard = [&](const cv::Point2f& uv)->cv::Point2f {
+      cv::Mat q = Hinv * (cv::Mat_<double>(3, 1) << (double)uv.x, (double)uv.y, 1.0);
+      double w = q.at<double>(2, 0);
+      if (std::abs(w) < 1e-12) return cv::Point2f();
+      return cv::Point2f((float)(q.at<double>(0, 0) / w), (float)(q.at<double>(1, 0) / w));
+      };
+
+   const float Lmini = 0.5f * kMarkerLen;
+   for (const auto& c : corners) {
+      if (c.size() != 4) continue;
+      cv::Point2f center2D(0.25f * (c[0].x + c[1].x + c[2].x + c[3].x),
+         0.25f * (c[0].y + c[1].y + c[2].y + c[3].y));
+      cv::Point2f xy = imgToBoard(center2D);
+      if (!cv::checkRange(cv::Mat(xy))) continue; // NaN/Inf guard
+      cv::Point3f C3(xy.x, xy.y, 0.0f);
+
+      std::vector<cv::Point3f> mini3 = {
+          C3,
+          {C3.x,         C3.y + Lmini, C3.z},        // X red: +Y
+          {C3.x + Lmini, C3.y,         C3.z},        // Y green: +X
+          {C3.x,         C3.y,         C3.z - Lmini} // Z blue: -Z
+      };
+      std::vector<cv::Point2f> mini2;
+      cv::projectPoints(mini3, rvec_CB, tvec_CB, _cam_webcam_intrinsic, _cam_webcam_dist_coeff, mini2);
+      if (mini2.size() != 4) continue;
+      cv::line(frame, mini2[0], mini2[1], cv::Scalar(0, 0, 255), 2);
+      cv::line(frame, mini2[0], mini2[2], cv::Scalar(0, 255, 0), 2);
+      cv::line(frame, mini2[0], mini2[3], cv::Scalar(255, 0, 0), 2);
+   }
+
+   return true;
+}
 
 
 
@@ -566,3 +669,79 @@ bool CCameraReal::get_marker_pose_in_board(int marker_id, cv::Vec3d& rvec_BM, cv
     T_to_Rt(T_B_M, rvec_BM, tvec_BM);
     return true;
 }
+///////////////////lab7-functions//////
+
+
+/*bool CCameraReal::draw_marker_ids(cv::Mat& frame)
+{
+    if (frame.empty())
+        return false;
+
+    // Detection outputs
+    std::vector<int> ids;
+    std::vector<std::vector<cv::Point2f> > corners;
+
+    // Use the SAME dictionary as your ChArUco board
+    cv::aruco::Dictionary dict =
+        cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
+
+    cv::aruco::DetectorParameters detParams;
+    cv::aruco::ArucoDetector detector(dict, detParams);
+
+    // New API: detector.detectMarkers(...)
+    detector.detectMarkers(frame, corners, ids);
+
+    if (ids.empty())
+        return false;
+
+    // Draw marker borders and IDs on the frame
+    cv::aruco::drawDetectedMarkers(frame, corners, ids);
+
+    for (size_t i = 0; i < ids.size(); ++i)
+    {
+        cv::Point2f center(0.0f, 0.0f);
+        for (int k = 0; k < 4; ++k)
+        {
+            center.x += corners[i][k].x;
+            center.y += corners[i][k].y;
+        }
+        center.x *= 0.25f;
+        center.y *= 0.25f;
+
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%d", ids[i]);
+
+        cv::putText(frame, buf, center,
+            cv::FONT_HERSHEY_SIMPLEX, 0.6,
+            cv::Scalar(0, 255, 255), 2, cv::LINE_AA);
+    }
+
+    return true;
+}
+*/
+bool CCameraReal::draw_marker_ids(cv::Mat& frame)
+{
+   if (frame.empty())
+      return false;
+
+   std::vector<int> ids;
+   std::vector<std::vector<cv::Point2f>> corners;
+
+   cv::aruco::Dictionary dict =
+      cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
+
+   cv::aruco::DetectorParameters detParams;
+   cv::aruco::ArucoDetector detector(dict, detParams);
+
+   detector.detectMarkers(frame, corners, ids);
+   if (ids.empty())
+      return false;
+
+   // This draws borders *and* IDs in OpenCV's style
+   cv::aruco::drawDetectedMarkers(frame, corners, ids);
+
+   return true;
+}
+
+
+

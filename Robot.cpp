@@ -1843,7 +1843,7 @@ void CRobot::draw_scara_dispatch(CCameraReal& cam,
 }
 */
 
-void CRobot::draw_scara_dispatch(CCameraReal& cam,
+/*void CRobot::draw_scara_dispatch(CCameraReal& cam,
     double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
 {
     if (_canvas.empty())
@@ -1873,9 +1873,9 @@ void CRobot::draw_scara_dispatch(CCameraReal& cam,
 
         // AR-only button: move to Marker 50 using joint-space jtraj
         if (cvui::button(_canvas, 10, 50, 220, 30,
-            "Lab7: jtraj to marker 50"))
+            "Lab7: ctraj to marker 50"))
         {
-            start_traj_to_marker(cam, 50, q1_deg, q2_deg, q3_deg, d3_m);
+            start_ctraj_to_marker(cam, 50, q1_deg, q2_deg, q3_deg, d3_m);
         }
 
         // Advance any running animations (including jtraj)
@@ -1927,6 +1927,101 @@ void CRobot::draw_scara_dispatch(CCameraReal& cam,
         cvui::update();
     }
 }
+*/
+
+void CRobot::draw_scara_dispatch(CCameraReal& cam,
+   double& q1_deg, double& q2_deg, double& q3_deg, double& d3_m)
+{
+   if (_canvas.empty())
+      _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
+
+   if (view_mode_ == ViewMode::AR)
+   {
+      // 1) Grab camera frame
+      cv::Mat frame;
+      cam.get_image(frame);
+      if (!frame.empty()) {
+         last_live_frame_ = frame;
+      }
+      else if (last_live_frame_.empty()) {
+         _canvas = cv::Mat::zeros(_image_size, CV_8UC3);
+         cv::imshow(CANVAS_NAME, _canvas);
+         cvui::update();
+         return;
+      }
+
+      // 2) Run pose estimation on a clean copy (no overlays)
+      cv::Mat detect_scratch = last_live_frame_.clone();
+      cam.detectBoardPose(detect_scratch);
+
+      // 3) Use the raw camera frame as the background canvas
+      _canvas = last_live_frame_.clone();
+
+      // 4) Draw cube on marker 50 FIRST (markers are still clean here)
+      const float kMarkerLen = 0.02042f;
+      const float kCubeH = 0.030f;
+      (void)cam.draw_cube_on_marker(_canvas, 50, kMarkerLen, kCubeH);
+
+      // 5) OPTIONAL: now overlay ArUco marker IDs on the same canvas
+      cam.draw_marker_ids(_canvas);
+
+      // 6) Lab 7 button: ctraj to marker 50
+      if (cvui::button(_canvas, 10, 50, 220, 30,
+         "Lab7: ctraj to marker 50"))
+      {
+         start_ctraj_to_marker(cam, 50, q1_deg, q2_deg, q3_deg, d3_m);
+      }
+
+      // 7) Advance any animations (FK / IK / jtraj / ctraj)
+      tick_animations(q1_deg, q2_deg, q3_deg, d3_m);
+
+      // 8) Draw SCARA in world, using board pose from detectBoardPose
+      draw_scara_world(cam, q1_deg, q2_deg, q3_deg, d3_m);
+
+      if (show_applied_pose_) {
+         draw_target_ee_world(cam);
+      }
+
+      // 9) Show the AR window
+      cv::imshow(CANVAS_NAME, _canvas);
+      cvui::update();
+   }
+   else
+   {
+      // --- VIRTUAL branch ---
+      _canvas = cv::Mat::zeros(_image_size, CV_8UC3) + BACKGROUND_COLOR;
+
+      // Advance any running animations
+      tick_animations(q1_deg, q2_deg, q3_deg, d3_m);
+
+      // Left-panel virtual camera UI
+      _virtualcam.update_settings(_canvas);
+
+      // Draw the robot in pure virtual space
+      draw_scara(q1_deg, q2_deg, q3_deg, d3_m);
+
+      if (show_applied_pose_) {
+         // Visualize desired EE pose in virtual view
+         auto A = createCoord();
+         for (auto& P : A) {
+            P.at<float>(0, 0) *= 1.2f;
+            P.at<float>(1, 0) *= 1.2f;
+            P.at<float>(2, 0) *= 1.2f;
+         }
+         cv::Mat T_target = createHT(
+            cv::Vec3d(ee_x_mm_ / 1000.0, ee_y_mm_ / 1000.0, ee_z_mm_ / 1000.0),
+            cv::Vec3d(0, 0, ee_theta_deg_));
+         transformPoints(A, T_target);
+         drawCoord(_canvas, A);
+         cv::putText(_canvas, "EE target (virtual)", cv::Point(12, 24),
+            cv::FONT_HERSHEY_SIMPLEX, 0.6, YELLOW, 2);
+      }
+
+      cv::imshow(CANVAS_NAME, _canvas);
+      cvui::update();
+   }
+}
+
 
 
 // Put this in Robot.cpp (and declare in Robot.h if you want), used by both AR + Virtual
@@ -2405,6 +2500,9 @@ void CRobot::tick_animations(double& q1_deg, double& q2_deg, double& q3_deg, dou
     if (traj_running_)
         advanced |= step_joint_traj(q1_deg, q2_deg, q3_deg, d3_m);
 
+    if (ctraj_running_)
+        advanced |= step_ctraj(q1_deg, q2_deg, q3_deg, d3_m);
+
     if (advanced)
     {
         cv::Mat T = fkine(q1_deg, q2_deg, d3_m, q3_deg);
@@ -2580,4 +2678,88 @@ void CRobot::start_traj_to_marker(CCameraReal& cam, int marker_id,
 
     start_joint_traj(q_from, q_to, 200);
 }
+void CRobot::start_ctraj_to_marker(CCameraReal& cam, int marker_id,
+    double& q1_deg, double& q2_deg,
+    double& q3_deg, double& d3_m)
+{
+    // 1) Get marker pose in BOARD frame
+    cv::Vec3d rvec_BM, tvec_BM;
+    if (!cam.get_marker_pose_in_board(marker_id, rvec_BM, tvec_BM)) {
+        // No marker seen this frame
+        return;
+    }
 
+    // 2) Target orientation: yaw of marker about board Z
+    cv::Mat Rbm;
+    cv::Rodrigues(rvec_BM, Rbm);
+    double th_target_deg =
+        std::atan2(Rbm.at<double>(1, 0), Rbm.at<double>(0, 0)) * 180.0 / CV_PI;
+
+    // 3) Target position in WORLD (board) frame.
+    //    Use SAME z mapping as maybe_track_cube so there is no offset.
+    const double x_target = tvec_BM[0];
+    const double y_target = tvec_BM[1];
+    const double z_target = pedestalZ_ + 0.11 + (tvec_BM[2] + tool_z_offset_);
+
+    // 4) Start pose: current EE pose in WORLD frame from fkine
+    cv::Mat T4 = fkine(q1_deg, q2_deg, d3_m, q3_deg);
+    const double x_start = static_cast<double>(T4.at<float>(0, 3));
+    const double y_start = static_cast<double>(T4.at<float>(1, 3));
+    const double z_start = static_cast<double>(T4.at<float>(2, 3));
+    const double R00 = static_cast<double>(T4.at<float>(0, 0));
+    const double R10 = static_cast<double>(T4.at<float>(1, 0));
+    const double th_start_deg = std::atan2(R10, R00) * 180.0 / CV_PI;
+
+    // 5) Build Cartesian jtraj profiles (X, Y, Z, theta)
+    const int nSteps = 200;
+
+    ctraj_x_ = jtraj_scalar(x_start, x_target, 0.0, 0.0, nSteps);
+    ctraj_y_ = jtraj_scalar(y_start, y_target, 0.0, 0.0, nSteps);
+    ctraj_z_ = jtraj_scalar(z_start, z_target, 0.0, 0.0, nSteps);
+    ctraj_th_ = jtraj_scalar(th_start_deg, th_target_deg, 0.0, 0.0, nSteps);
+
+    ctraj_nsteps_ = nSteps;
+    ctraj_step_ = 0;
+    ctraj_running_ = true;
+
+    // Turn off other anims / tracking so they don't fight the ctraj
+    anim_running_ = false;
+    lin_anim_running_ = false;
+    traj_running_ = false;
+    track_cube_ = false;
+}
+
+bool CRobot::step_ctraj(double& q1_deg, double& q2_deg,
+    double& q3_deg, double& d3_m)
+{
+    if (!ctraj_running_ || ctraj_step_ >= ctraj_nsteps_) {
+        ctraj_running_ = false;
+        return false;
+    }
+
+    // 1) Cartesian target at this step
+    const double x_m = ctraj_x_[ctraj_step_];
+    const double y_m = ctraj_y_[ctraj_step_];
+    const double z_m = ctraj_z_[ctraj_step_];
+    const double th_deg = ctraj_th_[ctraj_step_];
+
+    // 2) IK to get joints
+    double q1d, q2d, d3d, q4d;
+    if (!ikine(x_m, y_m, z_m, th_deg, q1d, q2d, d3d, q4d, elbow_up_toggle_)) {
+        // If this step becomes unreachable, stop the trajectory
+        ctraj_running_ = false;
+        return false;
+    }
+
+    // 3) Write back to joint variables (UI convention: q3 = wrist)
+    q1_deg = q1d;
+    q2_deg = q2d;
+    d3_m = d3d;
+    q3_deg = q4d;
+
+    ++ctraj_step_;
+    if (ctraj_step_ >= ctraj_nsteps_) {
+        ctraj_running_ = false;
+    }
+    return true;
+}
