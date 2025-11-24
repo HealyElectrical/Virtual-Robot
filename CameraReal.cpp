@@ -316,32 +316,61 @@ void CCameraReal::calibrate_board(int /*cam_id*/)
 */
 
 bool CCameraReal::detectBoardPose(cv::Mat& frame) {
-   if (frame.empty()) { have_pose = false; return false; }
+   if (frame.empty()) {
+      have_pose = false;
+      have_board_frame_ = false;
+      return false;
+   }
+
+   // Save the current frame so get_marker_pose_in_board can re-use it
+   frame.copyTo(last_board_frame_);
+   have_board_frame_ = true;
 
    // Detect markers
-   cv::aruco::Dictionary dict = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
+   cv::aruco::Dictionary dict =
+      cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
    cv::aruco::DetectorParameters detParams;
    cv::aruco::ArucoDetector detector(dict, detParams);
 
    std::vector<int> ids;
    std::vector<std::vector<cv::Point2f>> corners;
    detector.detectMarkers(frame, corners, ids);
-   if (ids.empty()) { have_pose = false; return false; }
-   if (_draw_markers) cv::aruco::drawDetectedMarkers(frame, corners, ids);
+   if (ids.empty()) {
+      have_pose = false;
+      return false;
+   }
+   if (_draw_markers) {
+      cv::aruco::drawDetectedMarkers(frame, corners, ids);
+   }
 
    // Interpolate ChArUco
-   cv::aruco::CharucoBoard board(cv::Size(kSquaresX, kSquaresY), kSquareLen, kMarkerLen, dict);
-   cv::aruco::CharucoDetector charuco(board, cv::aruco::CharucoParameters(), detParams);
+   cv::aruco::CharucoBoard board(
+      cv::Size(kSquaresX, kSquaresY),
+      kSquareLen, kMarkerLen, dict);
+
+   cv::aruco::CharucoDetector charuco(
+      board,
+      cv::aruco::CharucoParameters(),
+      detParams);
 
    cv::Mat chCorners, chIds; // Nx1 CV_32FC2 and Nx1 CV_32S
    charuco.detectBoard(frame, chCorners, chIds, corners, ids);
-   if (chCorners.empty() || chIds.empty() || chCorners.rows != chIds.rows) { have_pose = false; return false; }
-   if (chCorners.total() < 6) { have_pose = false; return false; }
+   if (chCorners.empty() || chIds.empty() || chCorners.rows != chIds.rows) {
+      have_pose = false;
+      return false;
+   }
+   if (chCorners.total() < 6) {
+      have_pose = false;
+      return false;
+   }
 
    // Build 3D/2D
    const auto& boardCorners = board.getChessboardCorners();
-   std::vector<cv::Point3f> objPts; objPts.reserve((size_t)chCorners.rows);
-   std::vector<cv::Point2f> imgPts; imgPts.reserve((size_t)chCorners.rows);
+   std::vector<cv::Point3f> objPts;
+   std::vector<cv::Point2f> imgPts;
+   objPts.reserve((size_t)chCorners.rows);
+   imgPts.reserve((size_t)chCorners.rows);
+
    for (int i = 0; i < chCorners.rows; ++i) {
       int cid = chIds.at<int>(i);
       if (cid >= 0 && cid < (int)boardCorners.size()) {
@@ -349,64 +378,97 @@ bool CCameraReal::detectBoardPose(cv::Mat& frame) {
          objPts.push_back(boardCorners[cid]);
       }
    }
-   if (objPts.size() < 6) { have_pose = false; return false; }
-
-   // Pose
-   cv::Vec3d rvec, tvec;
-   if (!cv::solvePnP(objPts, imgPts, _cam_webcam_intrinsic, _cam_webcam_dist_coeff, rvec, tvec, false, cv::SOLVEPNP_ITERATIVE)) {
-      have_pose = false; return false;
+   if (objPts.size() < 6) {
+      have_pose = false;
+      return false;
    }
+
+   // Pose of BOARD in CAMERA frame
+   cv::Vec3d rvec, tvec;
+   if (!cv::solvePnP(
+      objPts, imgPts,
+      _cam_webcam_intrinsic, _cam_webcam_dist_coeff,
+      rvec, tvec, false, cv::SOLVEPNP_ITERATIVE))
+   {
+      have_pose = false;
+      return false;
+   }
+
    rvec_CB = rvec;
    tvec_CB = tvec;
    have_pose = true;
 
    // BIG axes (your convention: X:+Y, Y:+X, Z:-Z)
    const float L = 2.0f * kSquareLen;
-   std::vector<cv::Point3f> axes3D = { {0,0,0}, {0, L,0}, {L,0,0}, {0,0,-L} };
+   std::vector<cv::Point3f> axes3D = {
+      {0,0,0}, {0, L,0}, {L,0,0}, {0,0,-L}
+   };
    std::vector<cv::Point2f> axes2D;
-   cv::projectPoints(axes3D, rvec_CB, tvec_CB, _cam_webcam_intrinsic, _cam_webcam_dist_coeff, axes2D);
+   cv::projectPoints(
+      axes3D, rvec_CB, tvec_CB,
+      _cam_webcam_intrinsic, _cam_webcam_dist_coeff,
+      axes2D);
+
    if (axes2D.size() == 4) {
       cv::line(frame, axes2D[0], axes2D[1], cv::Scalar(0, 0, 255), 3); // X red
       cv::line(frame, axes2D[0], axes2D[2], cv::Scalar(0, 255, 0), 3); // Y green
       cv::line(frame, axes2D[0], axes2D[3], cv::Scalar(255, 0, 0), 3); // Z blue
-      cv::putText(frame, "X", axes2D[1] + cv::Point2f(6, -6), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 0, 255), 2);
-      cv::putText(frame, "Y", axes2D[2] + cv::Point2f(6, -6), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
-      cv::putText(frame, "Z", axes2D[3] + cv::Point2f(6, -6), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 0, 0), 2);
+      cv::putText(frame, "X", axes2D[1] + cv::Point2f(6, -6),
+         cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 0, 255), 2);
+      cv::putText(frame, "Y", axes2D[2] + cv::Point2f(6, -6),
+         cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
+      cv::putText(frame, "Z", axes2D[3] + cv::Point2f(6, -6),
+         cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(255, 0, 0), 2);
    }
 
-   // MINI axes at each marker center - very defensive
-   cv::Mat Rcb; cv::Rodrigues(rvec_CB, Rcb);
-   cv::Mat Rt_2x3; cv::hconcat(Rcb.col(0), Rcb.col(1), Rt_2x3); cv::hconcat(Rt_2x3, cv::Mat(tvec_CB), Rt_2x3);
+   // MINI axes at each marker center (optional, keep your existing code)
+   cv::Mat Rcb;
+   cv::Rodrigues(rvec_CB, Rcb);
+   cv::Mat Rt_2x3;
+   cv::hconcat(Rcb.col(0), Rcb.col(1), Rt_2x3);
+   cv::hconcat(Rt_2x3, cv::Mat(tvec_CB), Rt_2x3);
    cv::Mat H = _cam_webcam_intrinsic * Rt_2x3;
    double det = cv::determinant(H);
-   if (std::abs(det) < 1e-12) return true; // skip minis if degenerate
+   if (std::abs(det) < 1e-12) {
+      return true; // skip minis if degenerate
+   }
    cv::Mat Hinv = H.inv();
 
    auto imgToBoard = [&](const cv::Point2f& uv)->cv::Point2f {
-      cv::Mat q = Hinv * (cv::Mat_<double>(3, 1) << (double)uv.x, (double)uv.y, 1.0);
+      cv::Mat q = Hinv * (cv::Mat_<double>(3, 1)
+         << (double)uv.x, (double)uv.y, 1.0);
       double w = q.at<double>(2, 0);
       if (std::abs(w) < 1e-12) return cv::Point2f();
-      return cv::Point2f((float)(q.at<double>(0, 0) / w), (float)(q.at<double>(1, 0) / w));
+      return cv::Point2f(
+         (float)(q.at<double>(0, 0) / w),
+         (float)(q.at<double>(1, 0) / w));
       };
 
    const float Lmini = 0.5f * kMarkerLen;
    for (const auto& c : corners) {
       if (c.size() != 4) continue;
-      cv::Point2f center2D(0.25f * (c[0].x + c[1].x + c[2].x + c[3].x),
+
+      cv::Point2f center2D(
+         0.25f * (c[0].x + c[1].x + c[2].x + c[3].x),
          0.25f * (c[0].y + c[1].y + c[2].y + c[3].y));
+
       cv::Point2f xy = imgToBoard(center2D);
       if (!cv::checkRange(cv::Mat(xy))) continue; // NaN/Inf guard
       cv::Point3f C3(xy.x, xy.y, 0.0f);
 
       std::vector<cv::Point3f> mini3 = {
-          C3,
-          {C3.x,         C3.y + Lmini, C3.z},        // X red: +Y
-          {C3.x + Lmini, C3.y,         C3.z},        // Y green: +X
-          {C3.x,         C3.y,         C3.z - Lmini} // Z blue: -Z
+         C3,
+         {C3.x,         C3.y + Lmini, C3.z},        // X red: +Y
+         {C3.x + Lmini, C3.y,         C3.z},        // Y green: +X
+         {C3.x,         C3.y,         C3.z - Lmini} // Z blue: -Z
       };
       std::vector<cv::Point2f> mini2;
-      cv::projectPoints(mini3, rvec_CB, tvec_CB, _cam_webcam_intrinsic, _cam_webcam_dist_coeff, mini2);
+      cv::projectPoints(
+         mini3, rvec_CB, tvec_CB,
+         _cam_webcam_intrinsic, _cam_webcam_dist_coeff,
+         mini2);
       if (mini2.size() != 4) continue;
+
       cv::line(frame, mini2[0], mini2[1], cv::Scalar(0, 0, 255), 2);
       cv::line(frame, mini2[0], mini2[2], cv::Scalar(0, 255, 0), 2);
       cv::line(frame, mini2[0], mini2[3], cv::Scalar(255, 0, 0), 2);
@@ -655,20 +717,63 @@ bool CCameraReal::draw_cube_on_marker(cv::Mat& frame, int marker_id, float marke
 
 
 
-bool CCameraReal::get_marker_pose_in_board(int marker_id, cv::Vec3d& rvec_BM, cv::Vec3d& tvec_BM) const
+bool CCameraReal::get_marker_pose_in_board(
+   int marker_id, cv::Vec3d& rvec_BM, cv::Vec3d& tvec_BM) const
 {
+   // Need a board pose (rvec_CB, tvec_CB) and a frame to work from
    if (!have_pose) return false;
-   if (!last_marker_ok_) return false;
-   if (last_marker_id_ != marker_id) return false;
+   if (!have_board_frame_ || last_board_frame_.empty()) return false;
 
-   cv::Mat T_C_B = Rt_to_T(rvec_CB, tvec_CB);                // board in camera
-   cv::Mat T_C_M = Rt_to_T(last_marker_rvec_C_, last_marker_tvec_C_); // marker in camera
+   // 1) Detect markers again in the saved frame
+   cv::aruco::Dictionary dict =
+      cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
+   cv::aruco::DetectorParameters detParams;
+   cv::aruco::ArucoDetector detector(dict, detParams);
+
+   std::vector<int> ids;
+   std::vector<std::vector<cv::Point2f>> corners;
+   detector.detectMarkers(last_board_frame_, corners, ids);
+   if (ids.empty()) return false;
+
+   int idx = -1;
+   for (size_t i = 0; i < ids.size(); ++i) {
+      if (ids[i] == marker_id) {
+         idx = static_cast<int>(i);
+         break;
+      }
+   }
+   if (idx < 0) {
+      // That marker just isn't visible in this frame
+      return false;
+   }
+
+   const std::vector<cv::Point2f>& c = corners[idx];
+   if (c.size() != 4) return false;
+
+   // 2) Estimate pose of this marker in the CAMERA frame using IPPE
+   const float markerLen = kMarkerLen;  // same as your board markers
+   cv::Vec3d rvec_C_M, tvec_C_M;
+   if (!estimate_single_marker_pose_ippe(
+      c, markerLen,
+      _cam_webcam_intrinsic, _cam_webcam_dist_coeff,
+      rvec_C_M, tvec_C_M))
+   {
+      return false;
+   }
+
+   // 3) Convert camera-frame marker pose to BOARD frame
+   // T_C_B : board in camera coords
+   // T_C_M : marker in camera coords
+   // T_B_M = T_B_C * T_C_M
+   cv::Mat T_C_B = Rt_to_T(rvec_CB, tvec_CB);
+   cv::Mat T_C_M = Rt_to_T(rvec_C_M, tvec_C_M);
    cv::Mat T_B_C = T_C_B.inv();
    cv::Mat T_B_M = T_B_C * T_C_M;
 
    T_to_Rt(T_B_M, rvec_BM, tvec_BM);
    return true;
 }
+
 ///////////////////lab7-functions//////
 
 
@@ -742,3 +847,4 @@ bool CCameraReal::draw_marker_ids(cv::Mat& frame)
 
    return true;
 }
+
